@@ -1,5 +1,5 @@
 [project]
-name = "PyMCSimMod"
+name = "pymcsimmod"
 authors = [{name = "Andy Shapiro", email = "shapiro.andy@epa.gov"}]
 dynamic = ["version", "description"]
 readme = "README.md"
