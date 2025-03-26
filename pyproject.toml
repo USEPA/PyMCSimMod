@@ -1,0 +1,107 @@
+[project]
+name = "PyMCSimMod"
+authors = [{name = "Andy Shapiro", email = "shapiro.andy@epa.gov"}]
+dynamic = ["version", "description"]
+readme = "README.md"
+requires-python = ">=3.13"
+license = { file="LICENSE" }
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Natural Language :: English",
+  "Programming Language :: Python :: 3.13",
+  "Private :: Do Not Upload",
+]
+dependencies = [
+  "typer",
+]
+
+[project.optional-dependencies]
+dev = [
+  "flit~=3.12.0",
+  "coverage~=7.7.1",
+  "pytest~=8.3.4",
+  "ruff~=0.11.2",
+  "poethepoet~=0.33.1",
+]
+
+[project.urls]
+"Source Code" = "https://github.com/USEPA/PyMCSimMod"
+"Changelog" = "https://github.com/USEPA/PyMCSimMod/blob/main/HISTORY.md"
+"Issue Tracker" = "https://github.com/USEPA/PyMCSimMod/issues"
+
+[project.scripts]
+pymcsimmod = "pymcsimmod.cli:app"
+
+[build-system]
+requires = ["flit_core >=3.12,<4"]
+build-backend = "flit_core.buildapi"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "I", "UP", "S", "B", "T20", "RUF"]
+ignore = ["E501", "B904", "B007", "S308", "S113", "S314"]
+unfixable = ["F401", "F841"]
+isort.known-first-party = ["pymcsimmod"]
+
+[tool.ruff.lint.per-file-ignores]
+"test_*.py" = ["S101", "S106"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = "tests"
+
+[tool.coverage.run]
+omit = [
+  "./build/",
+  "./tests/*",
+  "./venv/*"
+]
+
+[tool.coverage.report]
+fail_under=99
+precision=1
+
+[tool.poe.tasks.lint]
+help = "Check formatting issues"
+sequence = [
+  {cmd = "ruff format . --check"},
+  {cmd = "ruff check ."},
+]
+
+[tool.poe.tasks.format]
+help = "Fix formatting issues (where possible)"
+sequence = [
+  {cmd = "ruff format ."},
+  {cmd = "ruff check . --fix --show-fixes"},
+]
+
+[tool.poe.tasks.test]
+help = "Run tests"
+cmd = "pytest"
+
+[tool.poe.tasks.coverage]
+help = "Generate test coverage report"
+sequence = [
+  {cmd = "coverage run -m pytest"},
+  {cmd = "coverage html"},
+]
+
+[tool.poe.tasks.loc]
+help = "Lines of Code Report"
+cmd = """
+cloc
+  --exclude-dir=venv,build,dist
+  --exclude-ext=json,yaml,svg,toml,ini
+  --vcs=git \
+  --md \
+  .
+"""
+
+[tool.poe.tasks.build]
+help = "Build wheel package"
+cmd = "uv build"
