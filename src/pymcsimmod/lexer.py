@@ -2,6 +2,11 @@ from typing import ClassVar
 
 import ply.lex as lex
 
+IDENTIFIER_RE = r"[a-zA-Z_][a-zA-Z_0-9]*"
+INTEGER_RE = r"\d+"
+FLOAT_RE = r"\d+\.\d*|\.\d+"
+EXPONENTIAL_RE = r"(?:\d+\.?\d*|\.\d+)[eE]-?\d+"
+
 
 class Lexer:
     reserved: ClassVar = {
@@ -15,8 +20,10 @@ class Lexer:
         "CalcOutputs": "CALC_OUTPUTS",
         # Reserved keywords
         "dt": "DT",
-        # C math
+        # Math functions
         "pow": "POW",
+        # Special functions
+        "BetaRandom": "BETA_RANDOM",
     }
 
     tokens: ClassVar = [
@@ -35,6 +42,7 @@ class Lexer:
         "MULTIPLY",
         "DIVIDE",
         "EQUALS",
+        "NOT_EQUALS",
         "LT",
         "LTE",
         "GT",
@@ -42,6 +50,7 @@ class Lexer:
         "QUESTION",
         "COLON",
         "E",
+        "ASSIGN",
         *reserved.values(),
     ]
 
@@ -49,17 +58,19 @@ class Lexer:
     t_RBRACE = r"\}"
     t_LPAREN = r"\("
     t_RPAREN = r"\)"
-    t_COMMA = r"\,"
+    t_COMMA = r","
     t_PLUS = r"\+"
-    t_MINUS = r"\-"
+    t_MINUS = r"-"
     t_MULTIPLY = r"\*"
-    t_DIVIDE = r"\/"
-    t_EQUALS = r"\="
+    t_DIVIDE = r"/"
     t_QUESTION = r"\?"
-    t_COLON = r"\:"
+    t_COLON = r":"
+    t_ASSIGN = r"="
 
-    t_SEMICOLON = r"\;"
+    t_SEMICOLON = r";"
 
+    t_NOT_EQUALS = r"!="
+    t_EQUALS = r"=="
     t_LT = r"<"
     t_LTE = r"<="
     t_GT = r">"
@@ -73,23 +84,23 @@ class Lexer:
         r"End\."
         return t
 
+    @lex.TOKEN(IDENTIFIER_RE)
     def t_IDENTIFIER(self, t):
-        r"[a-zA-Z_][a-zA-Z_0-9]*"
         t.type = self.reserved.get(t.value, "IDENTIFIER")  # Check for reserved words
         return t
 
+    @lex.TOKEN(EXPONENTIAL_RE)
     def t_E(self, t):
-        r"\-?((\d+\.\d*)|(\d*\.\d+))[eE]\-?\d+"
         t.value = float(t.value)
         return t
 
+    @lex.TOKEN(FLOAT_RE)
     def t_FLOAT(self, t):
-        r"\-?((\d+\.\d*)|(\d*\.\d+))"
         t.value = float(t.value)
         return t
 
+    @lex.TOKEN(INTEGER_RE)
     def t_INTEGER(self, t):
-        r"\d+"
         t.value = int(t.value)
         return t
 

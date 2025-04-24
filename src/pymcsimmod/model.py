@@ -10,9 +10,15 @@ from pydantic import BaseModel, Field
 class Identifier(BaseModel):
     name: str
 
+    def to_mod(self) -> str:
+        return self.name
+
 
 class DtVariable(BaseModel):
     identifier: Identifier
+
+    def to_mod(self) -> str:
+        return f"dt({self.identifier.to_mod()})"
 
 
 Variable = Identifier | DtVariable
@@ -21,6 +27,9 @@ Variable = Identifier | DtVariable
 class Number(BaseModel):
     value: float
 
+    def to_mod(self) -> str:
+        return str(self.value)
+
 
 ##### Mathematical functions
 
@@ -28,6 +37,9 @@ class Number(BaseModel):
 class PowFunction(BaseModel):
     func: Literal["pow"] = "pow"
     args: list[Expression]
+
+    def to_mod(self) -> str:
+        return f"""pow({", ".join(arg.to_mod() for arg in self.args)})"""
 
 
 MathematicalFunction = PowFunction
@@ -42,15 +54,25 @@ MathematicalFunction = PowFunction
 class ParenthesizedExpression(BaseModel):
     expression: Expression
 
+    def to_mod(self) -> str:
+        return f"({self.expression.to_mod()})"
+
 
 class MathematicalExpression(BaseModel):
     operator: str
     lhs: Expression
     rhs: Expression
 
+    def to_mod(self) -> str:
+        return f"{self.lhs.to_mod()} {self.operator} {self.rhs.to_mod()}"
 
-class NegativeExpression(BaseModel):
+
+class SignedExpression(BaseModel):
+    sign: str
     expression: Variable | Number | ParenthesizedExpression
+
+    def to_mod(self) -> str:
+        return f"{self.sign}{self.expression.to_mod()}"
 
 
 class Condition(BaseModel):
@@ -58,15 +80,21 @@ class Condition(BaseModel):
     lhs: Expression
     rhs: Expression
 
+    def to_mod(self) -> str:
+        return f"{self.lhs.to_mod()} {self.operator} {self.rhs.to_mod()}"
+
 
 class TernaryExpression(BaseModel):
     condition: Condition
     if_true: Expression
     if_false: Expression
 
+    def to_mod(self) -> str:
+        return f"{self.condition.to_mod()} ? {self.if_true.to_mod()} : {self.if_false.to_mod()}"
+
 
 Expression = (
-    NegativeExpression
+    SignedExpression
     | MathematicalFunction
     | MathematicalExpression
     | TernaryExpression
@@ -82,40 +110,64 @@ class Statement(BaseModel):
     lhs: Variable
     rhs: Expression
 
+    def to_mod(self) -> str:
+        return f"{self.lhs.to_mod()} = {self.rhs.to_mod()};"
+
 
 class StatesSection(BaseModel):
     type: Literal["States"] = "States"
     declarations: list[Variable]
+
+    def to_mod(self) -> str:
+        return f"""States = {{\n{"\n".join(f"\t{declaration.to_mod()}," for declaration in self.declarations)}\n}};"""
 
 
 class InputsSection(BaseModel):
     type: Literal["Inputs"] = "Inputs"
     declarations: list[Variable]
 
+    def to_mod(self) -> str:
+        return f"""Inputs = {{\n{"\n".join(f"\t{declaration.to_mod()}," for declaration in self.declarations)}\n}};"""
+
 
 class OutputsSection(BaseModel):
     type: Literal["Outputs"] = "Outputs"
     declarations: list[Variable]
+
+    def to_mod(self) -> str:
+        return f"""Outputs = {{\n{"\n".join(f"\t{declaration.to_mod()}," for declaration in self.declarations)}\n}};"""
 
 
 class InitializeSection(BaseModel):
     type: Literal["Initialize"] = "Initialize"
     statements: list[Statement]
 
+    def to_mod(self) -> str:
+        return f"""Initialize {{\n{"\n".join(f"\t{statement.to_mod()}" for statement in self.statements)}\n}}"""
+
 
 class DynamicsSection(BaseModel):
     type: Literal["Dynamics"] = "Dynamics"
     statements: list[Statement]
+
+    def to_mod(self) -> str:
+        return f"""Dynamics {{\n{"\n".join(f"\t{statement.to_mod()}" for statement in self.statements)}\n}}"""
 
 
 class JacobianSection(BaseModel):
     type: Literal["Jacobian"] = "Jacobian"
     statements: list[Statement]
 
+    def to_mod(self) -> str:
+        return f"""Jacobian {{\n{"\n".join(f"\t{statement.to_mod()}" for statement in self.statements)}\n}}"""
+
 
 class CalcOutputsSection(BaseModel):
     type: Literal["CalcOutputs"] = "CalcOutputs"
     statements: list[Statement]
+
+    def to_mod(self) -> str:
+        return f"""CalcOutputs {{\n{"\n".join(f"\t{statement.to_mod()}" for statement in self.statements)}\n}}"""
 
 
 Section = Annotated[
@@ -132,3 +184,6 @@ Section = Annotated[
 
 class Model(BaseModel):
     sections: list[Section | Statement]
+
+    def to_mod(self) -> str:
+        return f"""{"\n".join(section.to_mod() for section in self.sections)}\nEnd."""

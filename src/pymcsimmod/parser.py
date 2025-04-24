@@ -8,11 +8,11 @@ from .model import (
     Identifier,
     MathematicalExpression,
     Model,
-    NegativeExpression,
     Number,
     ParenthesizedExpression,
     PowFunction,
     Section,
+    SignedExpression,
     Statement,
     TernaryExpression,
 )
@@ -26,6 +26,7 @@ class Parser:
         ("right", "QUESTION", "COLON"),
         ("left", "PLUS", "MINUS"),
         ("left", "MULTIPLY", "DIVIDE"),
+        ("right", "UPLUS", "UMINUS"),
     )
 
     def p_empty(self, p):
@@ -48,7 +49,7 @@ class Parser:
         p[0] = p[1]
 
     def p_section_1(self, p):
-        "section_1 : section_name_1 EQUALS LBRACE section_content_1 RBRACE SEMICOLON"
+        "section_1 : section_name_1 ASSIGN LBRACE section_content_1 RBRACE SEMICOLON"
         p[0] = TypeAdapter(Section).validate_python({"type": p[1], "declarations": p[4]})
 
     def p_section_2(self, p):
@@ -86,14 +87,14 @@ class Parser:
         p[0] = [*p[1], p[2]] if len(p) == 3 else ([p[1]] if p[1] else [])
 
     def p_statement(self, p):
-        "statement : variable EQUALS expression SEMICOLON"
+        "statement : variable ASSIGN expression SEMICOLON"
         p[0] = Statement(lhs=p[1], rhs=p[3])
 
     def p_expression(self, p):
         """expression : parenthesized_expression
         | ternary_expression
         | mathematical_expression
-        | negative_expression
+        | signed_expression
         | number
         | variable"""
         p[0] = p[1]
@@ -111,12 +112,9 @@ class Parser:
         "ternary_expression : condition QUESTION expression COLON expression"
         p[0] = TernaryExpression(condition=p[1], if_true=p[3], if_false=p[5])
 
-    def p_equality_operator(self, p):
-        "equality_operator : EQUALS EQUALS"
-        p[0] = "=="
-
     def p_condition_operator(self, p):
-        """condition_operator : equality_operator
+        """condition_operator : EQUALS
+        | NOT_EQUALS
         | LT
         | LTE
         | GT
@@ -144,11 +142,14 @@ class Parser:
         | E"""
         p[0] = Number(value=p[1])
 
-    def p_negative_expression(self, p):
-        """negative_expression : MINUS number
-        | MINUS variable
-        | MINUS parenthesized_expression"""
-        p[0] = NegativeExpression(expression=p[2])
+    def p_signed_expression(self, p):
+        """signed_expression : PLUS number %prec UPLUS
+        | PLUS variable %prec UPLUS
+        | PLUS parenthesized_expression %prec UPLUS
+        | MINUS number %prec UMINUS
+        | MINUS variable %prec UMINUS
+        | MINUS parenthesized_expression %prec UMINUS"""
+        p[0] = SignedExpression(sign=p[1], expression=p[2])
 
     def __init__(self, start=None):
         if start is not None:
