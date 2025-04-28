@@ -25,7 +25,7 @@ Variable = Identifier | DtVariable
 
 
 class Number(BaseModel):
-    value: float
+    value: int | float
 
     def to_mod(self) -> str:
         return str(self.value)
@@ -119,7 +119,7 @@ class StatesSection(BaseModel):
     declarations: list[Variable]
 
     def to_mod(self) -> str:
-        return f"""States = {{\n{"\n".join(f"\t{declaration.to_mod()}," for declaration in self.declarations)}\n}};"""
+        return f"""States = {{\n{",\n".join(f"    {declaration.to_mod()}" for declaration in self.declarations)}\n}};"""
 
 
 class InputsSection(BaseModel):
@@ -127,7 +127,7 @@ class InputsSection(BaseModel):
     declarations: list[Variable]
 
     def to_mod(self) -> str:
-        return f"""Inputs = {{\n{"\n".join(f"\t{declaration.to_mod()}," for declaration in self.declarations)}\n}};"""
+        return f"""Inputs = {{\n{",\n".join(f"    {declaration.to_mod()}" for declaration in self.declarations)}\n}};"""
 
 
 class OutputsSection(BaseModel):
@@ -135,7 +135,7 @@ class OutputsSection(BaseModel):
     declarations: list[Variable]
 
     def to_mod(self) -> str:
-        return f"""Outputs = {{\n{"\n".join(f"\t{declaration.to_mod()}," for declaration in self.declarations)}\n}};"""
+        return f"""Outputs = {{\n{",\n".join(f"    {declaration.to_mod()}" for declaration in self.declarations)}\n}};"""
 
 
 class InitializeSection(BaseModel):
@@ -143,7 +143,7 @@ class InitializeSection(BaseModel):
     statements: list[Statement]
 
     def to_mod(self) -> str:
-        return f"""Initialize {{\n{"\n".join(f"\t{statement.to_mod()}" for statement in self.statements)}\n}}"""
+        return f"""Initialize {{\n{"\n".join(f"    {statement.to_mod()}" for statement in self.statements)}\n}}"""
 
 
 class DynamicsSection(BaseModel):
@@ -151,7 +151,7 @@ class DynamicsSection(BaseModel):
     statements: list[Statement]
 
     def to_mod(self) -> str:
-        return f"""Dynamics {{\n{"\n".join(f"\t{statement.to_mod()}" for statement in self.statements)}\n}}"""
+        return f"""Dynamics {{\n{"\n".join(f"    {statement.to_mod()}" for statement in self.statements)}\n}}"""
 
 
 class JacobianSection(BaseModel):
@@ -159,7 +159,7 @@ class JacobianSection(BaseModel):
     statements: list[Statement]
 
     def to_mod(self) -> str:
-        return f"""Jacobian {{\n{"\n".join(f"\t{statement.to_mod()}" for statement in self.statements)}\n}}"""
+        return f"""Jacobian {{\n{"\n".join(f"    {statement.to_mod()}" for statement in self.statements)}\n}}"""
 
 
 class CalcOutputsSection(BaseModel):
@@ -167,7 +167,7 @@ class CalcOutputsSection(BaseModel):
     statements: list[Statement]
 
     def to_mod(self) -> str:
-        return f"""CalcOutputs {{\n{"\n".join(f"\t{statement.to_mod()}" for statement in self.statements)}\n}}"""
+        return f"""CalcOutputs {{\n{"\n".join(f"    {statement.to_mod()}" for statement in self.statements)}\n}}"""
 
 
 Section = Annotated[

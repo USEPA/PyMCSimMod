@@ -15,6 +15,8 @@ from pymcsimmod.model import (
 )
 from pymcsimmod.parser import Parser
 
+from .utils import DATA_PATH
+
 
 def test_empty():
     parser = Parser(start="empty")
@@ -204,3 +206,10 @@ def test_signed_expression():
     parsed_expression = parser.parse("-a")
     expected_expression = SignedExpression(sign="-", expression=Identifier(name="a"))
     assert parsed_expression == expected_expression
+
+
+def test_to_mod():
+    model = (DATA_PATH / "good.model").read_text()
+    parser = Parser()
+    parsed_model = parser.parse(model)
+    assert parsed_model.to_mod() == model
