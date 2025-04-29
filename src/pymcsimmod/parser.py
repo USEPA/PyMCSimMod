@@ -1,8 +1,9 @@
 import ply.yacc as yacc
 from pydantic import TypeAdapter
 
-from .lexer import Lexer
+from .lexer import ModelLexer
 from .model import (
+    BetaRandomFunction,
     Condition,
     DtVariable,
     Identifier,
@@ -18,8 +19,13 @@ from .model import (
 )
 
 
-class Parser:
-    tokens = Lexer.tokens
+class ModelParser:
+    """Parser for model files.
+
+    https://www.gnu.org/software/mcsim/mcsim.html#Writing-and-Compiling-Structural-Models
+    """
+
+    tokens = ModelLexer.tokens
     start = "model"
 
     precedence = (
@@ -94,6 +100,8 @@ class Parser:
         """expression : parenthesized_expression
         | ternary_expression
         | mathematical_expression
+        | mathematical_function
+        | special_function
         | signed_expression
         | number
         | variable"""
@@ -132,9 +140,13 @@ class Parser:
         | expression DIVIDE expression"""
         p[0] = MathematicalExpression(operator=p[2], lhs=p[1], rhs=p[3])
 
-    def p_mathematical_expression_2(self, p):
-        "mathematical_expression : POW LPAREN expression COMMA expression RPAREN"
+    def p_mathematical_function(self, p):
+        "mathematical_function : POW LPAREN expression COMMA expression RPAREN"
         p[0] = PowFunction(func=p[1], args=[p[3], p[5]])
+
+    def p_special_function(self, p):
+        "special_function : BETA_RANDOM LPAREN expression COMMA expression COMMA expression COMMA expression RPAREN"
+        p[0] = BetaRandomFunction(func=p[1], args=[p[3], p[5], p[7], p[9]])
 
     def p_number(self, p):
         """number : INTEGER
@@ -154,12 +166,8 @@ class Parser:
     def __init__(self, start=None):
         if start is not None:
             self.start = start
-        self.lexer = Lexer()
-        self.build()
-
-    def build(self, **kwargs):
-        kwargs.setdefault("debug", False)
-        self.parser: yacc.LRParser = yacc.yacc(module=self, **kwargs)
+        self.lexer = ModelLexer()
+        self.parser: yacc.LRParser = yacc.yacc(module=self, debug=False)
 
     def parse(self, data, **kwargs):
         kwargs.setdefault("lexer", self.lexer.lexer)

@@ -8,7 +8,9 @@ FLOAT_RE = r"\d+\.\d*|\.\d+"
 EXPONENTIAL_RE = r"(?:\d+\.?\d*|\.\d+)[eE]-?\d+"
 
 
-class Lexer:
+class ModelLexer:
+    """Lexer for model files."""
+
     reserved: ClassVar = {
         # Sections
         "States": "STATES",
@@ -111,7 +113,4 @@ class Lexer:
     t_ignore = " \t"
 
     def __init__(self):
-        self.build()
-
-    def build(self, **kwargs):
-        self.lexer: lex.Lexer = lex.lex(module=self, **kwargs)
+        self.lexer: lex.Lexer = lex.lex(module=self)

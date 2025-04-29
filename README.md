@@ -40,3 +40,19 @@ uv run poe build   # build a python wheel
 ```
 
 Github actions are set up to execute whenever code is pushed to check code formatting and successful tests. In addition, when code is pushed to the `main` branch, a wheel artifact is created and stored on github.
+
+## Parsing a model file
+
+The `ModelParser` object in this library is able to parse a model file into a datastructure usable in python.
+
+```python
+from pathlib import Path
+
+from pymcsimmod import parser
+
+model_path = Path(parser.__file__).parents[2] / "tests/data/pred_prey.model"
+
+model = parser.ModelParser().parse(model_path.read_text())
+
+# model is now set to a datastructure representing the contents of the model file
+```

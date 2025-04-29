@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
-##### Variables / Constants
+# Variables / Constants
 
 
 class Identifier(BaseModel):
@@ -31,7 +31,7 @@ class Number(BaseModel):
         return str(self.value)
 
 
-##### Mathematical functions
+# Mathematical functions
 
 
 class PowFunction(BaseModel):
@@ -44,11 +44,22 @@ class PowFunction(BaseModel):
 
 MathematicalFunction = PowFunction
 
-##### Special functions
-# TODO
+
+# Special functions
 
 
-##### Expressions
+class BetaRandomFunction(BaseModel):
+    func: Literal["BetaRandom"] = "BetaRandom"
+    args: list[Expression]
+
+    def to_mod(self) -> str:
+        return f"""BetaRandom({", ".join(arg.to_mod() for arg in self.args)})"""
+
+
+SpecialFunction = BetaRandomFunction
+
+
+# Expressions
 
 
 class ParenthesizedExpression(BaseModel):
@@ -96,6 +107,7 @@ class TernaryExpression(BaseModel):
 Expression = (
     SignedExpression
     | MathematicalFunction
+    | SpecialFunction
     | MathematicalExpression
     | TernaryExpression
     | Variable
@@ -103,7 +115,7 @@ Expression = (
     | ParenthesizedExpression
 )
 
-##### Sections
+# Sections
 
 
 class Statement(BaseModel):
