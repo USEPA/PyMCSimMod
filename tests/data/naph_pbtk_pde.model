@@ -1,0 +1,1144 @@
+# https://catalog.data.gov/dataset/naphthalene-pbpk-model-with-inhalation-and-skin-routes-of-exposure
+#------------------------------------------------------------------------------
+# naph_pbtk_pde.model
+#
+# Author: Dustin Kapraun, US EPA, November 2018
+#
+# This code implements a physiologically based pharmacokinetic (PBPK) model for
+# naphthalene. It includes all of the components of the computational fluid
+# dynamics (CFD) and PBPK model of Campbell et al. (2014), but also incorporates
+# skin components based upon a partial differential equation model for
+# diffusion and oral absorption via a gut lumen compartment.
+#
+# The following abbreviations, which were used in the original ACSL code for the
+# Campbell et al. (2014) model provided by JL Cambell, are used in variable
+# names and in comments throughout this code.
+#       L = Lumen                   DO = Dorsal Olfactory
+#       T = Tissue                  DR = Dorsal Respiratory
+#       X = Blood Exchange Region   VR = Ventral Respiratory
+#       L or LI = Liver             PP = Poorly Perfused
+#       PU or LU = Lung             RP = Richly Perfused
+#       FA = Fat                    AB = Arterial Blood
+#       VB = Venous Blood
+# 
+# In addition to these, we use the following abbreviations for expressions
+# related to skin compartments.
+#       SC = Stratum Corneum
+#       VE = Viable Epidermis
+#
+# Implementation Notes:
+# - Setting AEXP to zero ensures skin components of the model are inactive,
+#   while setting AEXP to a nonzero value ensures skin components of the model
+#   are active.
+# - Setting VWELL to zero when AEXP is nonzero ensures skin components of the
+#   model are active, but enforces a zero flux boundary condition at the outer
+#   surface of the stratum corneum.
+#
+# References:
+# JL Campbell, ME Andersen, HJ Clewell (2014), "A hybrid CFD-PBPK model for
+# naphthalene in rat and human with IVIVE for nasal tissue metabolism and
+# cross-species dosimetry," Inhalation Toxicology 26(6), 333-344.
+#
+# D Kim, ME Andersen, LA Nylander-French (2006), "A dermatotoxicokinetic model
+# of human exposures to jet fuel," Toxicological Sciences 93(1), 22-23.
+#
+# D Kim (2006), Toxicokinetic Models of Dermal Exposure to Jet Fuel, PhD
+# Dissertation, University of North Carolina at Chapel Hill.
+#
+# D Kim, ME Andersen, Y-CE Chao, PP Egeghy, SM Rappaport, LA Nylander-French
+# (2007), "PBTK Modeling Demonstrates Contribution of Dermal and Inhalation
+# Exposure Components to End-Exhaled Breath Concentrations of Naphthalene,"
+# Environmental Health Perspectives 115(6), 894-901.
+#
+# KD McCarley, AL Bunge (2001), "Pharmacokinetic Models of Dermal Absorption,"
+# Journal of Pharmaceutical Sciences 90(11), 1699-1719.
+#------------------------------------------------------------------------------
+
+
+#------------------------------------------------------------------------------
+# STATE VARIABLES for the model (for which ODEs are provided in the DYNAMICS
+# section).
+
+States = {
+    RIV,            # Rate of intravenous dosing (nmol/min).
+    AIV,            # Total (cumulative) amount provided intravenously (nmol).
+    RORAL,          # Rate of oral dosing (nmol/min).
+    AORAL,          # Total (cumulative) amount provided orally (nmol).
+    CIN,            # Concentration in ambient air (nmol/mL).
+    AWELL,          # Total amount in skin exposure well (nmol).
+    CSC01,          # Concentration in stratum corneum at depth 1 (nmol/mL).
+    CSC02,          # Concentration in stratum corneum at depth 2 (nmol/mL).
+    CSC03,          # Concentration in stratum corneum at depth 3 (nmol/mL).
+    CSC04,          # Concentration in stratum corneum at depth 4 (nmol/mL).
+    CSC05,          # Concentration in stratum corneum at depth 5 (nmol/mL).
+    CSC06,          # Concentration in stratum corneum at depth 6 (nmol/mL).
+    CSC07,          # Concentration in stratum corneum at depth 7 (nmol/mL).
+    CSC08,          # Concentration in stratum corneum at depth 8 (nmol/mL).
+    CSC09,          # Concentration in stratum corneum at depth 9 (nmol/mL).
+    ADERM,          # Total (cumulative) amount absorbed through skin (nmol).
+    ALDR,           # Amount in dorsal respiratory lumen (nmol).
+    AMTDR,          # Total amount metabolized in DR tissue (nmol).
+    ATDR,           # Amount in dorsal respiratory tissue (nmol).
+    AXDR,           # Amount in dorsal respiratory blood exchange area (nmol).
+    ALDO1,          # Amount in anterior dorsal olfactory lumen (nmol).
+    AMTO1,          # Total amount metabolized in anterior DO tissue (nmol).
+    ATDO1,          # Amount in anterior dorsal olfactory tissue (nmol).
+    AXDO1,          # Amount in anterior DO blood exchange area (nmol).
+    ALDO2,          # Amount in posterior dorsal olfactory lumen (nmol).
+    AMTO2,          # Total amount metabolized in posterior DO tissue (nmol).
+    ATDO2,          # Amount in posterior dorsal olfactory tissue (nmol).
+    AXDO2,          # Amount in posterior DO blood exchange area (nmol).
+    ALVR1,          # Amount in anterior ventral respiratory lumen (nmol).
+    AMTV1,          # Total amount metabolized in anterior VR tissue (nmol).
+    ATVR1,          # Amount in anterior ventral respiratory tissue (nmol).
+    AXVR1,          # Amount in anterior VR blood exchange area (nmol).
+    ALVR2,          # Amount in posterior ventral respiratory lumen (nmol).
+    AMTV2,          # Total amount metabolized in posterior VR tissue (nmol).
+    ATVR2,          # Amount in posterior ventral respiratory tissue (nmol).
+    AXVR2,          # Amount in posterior VR blood exchange area (nmol).
+    ALPL,           # Amount in pharynx and larynx lumen (nmol).
+    ATPL,           # Amount in pharynx and larynx tissue (nmol).
+    AXPL,           # Amount in pharynx and larynx blood exchange area (nmol).
+    ALCA,           # Amount in conducting airways lumen (nmol).
+    ATCA,           # Amount in conducting airways tissue (nmol).
+    AXCA,           # Amount in conducting airways blood exchange area (nmol).
+    AMLPU,          # Total amount metabolized in pulmonary tissue (nmol).
+    ATPU,           # Amount in pulmonary tissue (nmol).
+    AML,            # Total amount metabolized in liver tissue (nmol).
+    ALI,            # Amount in liver tissue (nmol).
+    AFA,            # Amount in fat tissue (nmol).
+    ARP,            # Amount in richly perfused tissue (nmol).
+    APP,            # Amount in poorly perfused tissue (nmol).
+    AVE,            # Amount in viable epidermis (nmol).
+    AGUTL,          # Amount in gut lumen (nmol).
+    AAB,            # Amount in arterial blood (nmol).
+    AVB,            # Amount in venous blood (nmol).
+    AIN,            # Net amount that has entered the organism (nmol).
+    AUC_CAB_UG,     # AUC for arterial blood concentration(ug/mL*min).
+    AUC_CTDO_UG,    # AUC for DO tissue concentration (ug/mL*min).
+    CMTDO_UG,       # Concentration of metabolite in DO tissue (ug/mL).
+    AUC_CMTDO_UG,   # AUC for metabolite in DO tissue (ug/mL*min).
+    AUC_RCMTDO_UG,  # AUC for rate of production of metabolite in DO per unit
+                    #  volume (ug/mL).
+    CMBODY_UG,      # Concentration of metabolite in whole body (ug/mL).
+    AUC_CMBODY_UG,  # AUC for metabolite in whole body (ug/mL*min).
+    AUC_RCMBODY_UG, # AUC for rate of production of metabolite in whole body per
+                    #  unit body mass (ug/kg).
+    CTDOALT_UG,     # Concentration (alternate) in DO tissue (ug/mL).
+    AUC_CTDOALT_UG, # AUC for conc. (alt) in DO tissue (um/mL*min).
+    AUC_RDELDO_UG,  # AUC for rate of delivery to DO tissue per unit area
+                    #  (ug/cm^2).
+};
+# End of STATE VARIABLES.
+#------------------------------------------------------------------------------
+
+
+#------------------------------------------------------------------------------
+# OUTPUT VARIABLES for the model (which are computed in the DYNAMICS section
+# as analytic functions of state variables, inputs, and parameters).
+
+Outputs = {
+    ASC,                # Total amount in stratum corneum (nmol).
+    CWELL,              # Concentration in skin exposure well (nmol/mL).
+    CSC00,              # ... at outer surface of stratum corneum.
+    CSC10,              # ... at interface of SC with VE.
+    CLDR,               # ... in dorsal respiratory lumen (nmol/mL).
+    CTDR,               # ... in dorsal respiratory tissue (nmol/mL).
+    CXDR,               # ... in DR blood exchange area (nmol/mL).
+    CLDO1,              # ... in anterior dorsal olfactory lumen (nmol/mL).
+    CTDO1,              # ... in anterior dorsal olfactory tissue (nmol/mL).
+    CXDO1,              # ... in anterior DO blood exchange area (nmol/mL).
+    CLDO2,              # ... in posterior dorsal olfactory lumen (nmol/mL).
+    CTDO2,              # ... in posterior dorsal olfactory tissue (nmol/mL).
+    CXDO2,              # ... in posterior DO blood exchange area (nmol/mL).
+    CLVR1,              # ... in anterior ventral respiratory lumen (nmol/mL).
+    CTVR1,              # ... in anterior ventral respiratory tissue (nmol/mL).
+    CXVR1,              # ... in anterior VR blood exchange area (nmol/mL).
+    CURT,               # ... in the upper respiratory tract (nmol/mL).
+    CLPL,               # ... in pharynx and larynx lumen (nmol/mL).
+    CTPL,               # ... in pharynx and larynx tissue (nmol/mL).
+    CXPL,               # ... in PL blood exchange area (nmol/mL).
+    CLCA,               # ... in conducting airways lumen (nmol/mL).
+    CTCA,               # ... in conducting airways tissue (nmol/mL).
+    CXCA,               # ... in CA blood exchange area (nmol/mL).
+    CLPU,               # ... in pulmonary lumen (nmol/mL).
+    CTPU,               # ... in pulmonary tissue (nmol/mL).
+    CvTPU,              # ... in veins leaving pulmonary tissue (nmol/mL).
+    CLI,                # ... in liver tissue (nmol/mL).
+    CvLI,               # ... in veins leaving liver tissue (nmol/mL).
+    CFA,                # ... in fat tissue (nmol/mL).
+    CvFA,               # ... in veins leaving fat tissue (nmol/mL).
+    CRP,                # ... in richly perfused tissue (nmol/mL).
+    CvRP,               # ... in veins leaving richly perfused tissue (nmol/mL).
+    CPP,                # ... in poorly perfused tissue (nmol/mL).
+    CvPP,               # ... in veins leaving poorly perfused tissue (nmol/mL).
+    CVE,                # ... in viable epidermis (nmol/mL).
+    CvVE,               # ... in veins leaving viable epidermis (nmol/mL).
+    CAB,                # ... in arterial blood (nmol/mL).
+    CVB,                # ... in venous blood (nmol/mL).
+    CAB_UG,             # ... in arterial blood (ug/mL).
+    JSC00,              # ... flux at outer surface of SC (nmol/cm^2/min).
+    JSC10,              # ... flux at interface of SC with VE (nmol/cm^2/min).
+    AINa,               # Amount in the organism plus cumulative amount that has
+                        #  been metabolized (nmol).
+    CTDO,               # Concentration in DO tissue (nmol/mL).
+    CTDO_UG,            # Concentration in DO tissue (ug/mL).
+    RCMTDO_UG,          # Rate of production of metabolite in DO tissue per unit
+                        #  volume (ug/mL/d).
+    RCMBODY_UG,         # Rate of production of metabolite in whole body per
+                        #  unit body mass (ug/kg/d).
+    RDELDO_UG,          # Rate of delivery to dorsal olfactory tissue per unit
+                        #  area (ug/cm^2/d).
+};
+# End of OUTPUT VARIABLES.
+#------------------------------------------------------------------------------
+
+
+#------------------------------------------------------------------------------
+# INPUT VARIABLES for the model (which are independent of other variables, and
+# which may vary in time).
+Inputs = {};
+
+# End of INPUT VARIABLES.
+#------------------------------------------------------------------------------
+
+
+#------------------------------------------------------------------------------
+# PARAMETERS for the model (which are independent of time). Calculated
+# parameters (i.e, parameters that depend on other parameters) are declared and
+# initialized to zero here, and the logic for computing their true values is
+# then provided in the MODEL INITIALIZATION section.
+
+# NOTE: Default anatomical and physiological values supplied here are for *rat*.
+# See Tables 1, 2, and 3 of Campbell et al. (2014). - DFK 2/15/2018
+# See also Campbell-supplied source code file "ratparam.m". - DFK 9/26/2019
+
+# Inhalation and intravenous exposure parameters.
+# CINPPM = 0.0;       # Inhaled naphthalene concentration (ppm).
+# CINPPMa = 0.0;      # Aerosol naphthalene concentration (ppm).
+# IVDOSE = 0.0;       # Intravenous dose (mg/kg).
+# TINF = 3.0;         # Time for intravenous infusion (min).
+# NOTE: CINPPMa and CINa do not appear to be used in any ODEs in the Campbell-
+# supplied source code file "napth.csl", so lines involving these terms have
+# been commented out in this code. - DFK 2/20/2018
+# Also, IVDOSE and TINF are now used externally (in R simulation files) to
+# update the new state variable RIV, which describes the instantaneous rate of
+# intravenous dosing. - DFK 2/21/2018
+# Finally, CINPPM is now used externally (in R simulation files) to update the
+# new state variable CIN (which was a calculated a parameter in the Campbell-
+# supplied source code file "napth.csl"). - DFK 2/23/2018
+
+# Skin exposure parameters.
+AEXP = 0.0;         # Area of exposed skin (cm^2).
+VWELL = 1.0;        # Volume of material in exposure well (mL).
+
+# Basic anatomical and physiological parameters.
+BWinit = 315;   # Body mass (g).
+QPUc = 1.756;   # Cardiac output (mL/min/g^0.75).
+MVc = 1.909;    # Minute ventilation rate (mL/min/g^0.75).
+
+# Skin parameters.
+DSC = 1.0e-8;   # Fickian diffusion constant for stratum corneum (cm^2/min).
+# NOTES: For the diffusion constant, see the formulas proposed by McCarley &
+# Bunge  (2001).
+TSC = 0.003;    # Thickness of stratum corneum (cm).
+TVE = 0.0075;   # Thickness of viable epidermis (cm).
+# NOTES: TSC should be approximately 0.0015 cm and TVE should be 0.005-0.01 cm
+# based on remarks in Sections 1.3.1 and 1.3.2 of Kim (2006). TSC should be
+# 0.001-0.005 cm and TVE should be 0.005-0.01 cm according to McCarley & Bunge
+# (2001), p. 1700.
+
+# Oral absorption parameters.
+KABS = 1.0;     # Absorption rate constant (gut lumen to liver) (1/h).
+
+# Blood flows (as fractions of cardiac output) to ...
+FBURT = 0.0015;     # ... nasal cavity.
+FBLI = 0.25;        # ... liver.
+FBFA = 0.07;        # ... fat.
+FBPP = 0.1675;      # ... poorly perfused tissue.
+FBRP = 0.5;         # ... richly perfused tissue.
+FBCA = 0.011;       # ... conducting airways.
+# NOTES: These default values sum to 1. Perhaps code should check to ensure
+# that values sum to 1 when altered by the user. - DFK 2/16/2018
+
+# Volumes (as fractions of body mass) for ...
+FTLI = 0.037;       # ... liver.
+FFAT = 0.065;       # ... fat.
+FTPP = 0.5618;      # ... poorly perfused tissue.
+FTRP = 0.178;       # ... richly perfused tissue.
+FTABD = 0.018;      # ... arterial blood.
+FTVBD = 0.045;      # ... venous blood.
+FTREM = 0.09;       # ... remaining tissue.
+# NOTES: All values here (taken from the Campbell-supplied source code file
+# "ratparam.m") match the values reported by Campbell et al. (2014), *except*
+# FTABD, FTVBD, and FTREM, which are not reported by those authors. Also, values
+# don't sum to 1. - DFK 2/15/2018
+# For rat (i.e, for the parameter values shown here), the total volume (BW) is
+# approximately equal to the total body mass (BWinit) after accounting for
+# volume of respiratory tract tissue. See comment in MODEL INITIALIZATION
+# section below for total body mass. - DFK 2/26/2018
+
+# Partition coefficients for ...
+HBA = 571.0;        # ... blood:air.
+HTB = 3.49;         # ... general tissue:blood (incl. RP, PP, respiratory).
+HLUB = 1.71;        # ... lung:blood.
+HLB = 1.61;         # ... liver:blood.
+HFB = 49.0;         # ... fat:blood.
+HRPB = 2.12;        # ... richly perfused tissue:blood.
+HPPB = 3.49;        # ... poorly perfused tissue:blood.
+# HVEB = 2.8;         # ... VE:blood (Kim et al., 2007)
+HVEB = 2.73;        # ... VE:blood (Eq. 23 of McCarley & Bunge, 2001)
+# HSCVE = 1.8;        # ... SC:VE (Kim et al., 2007).
+HSCVE = 1.98;       # ... SC:VE (Eq. 22 of McCarley & Bunge, 2001)
+HSCJP8 = 1.0;       # ... SC:JP8.
+# NOTES: For the skin (SC and VE) partition coefficients, see the formulas
+# proposed by McCarley & Bunge (2001).
+
+# NOTES: HTB and HPPB values here (taken from the Campbell-supplied source code
+# file "ratparam.m") don't match values reported by Campbell et al. (2014),
+# which were both 3.5 (minor discrepancy). HLB value here (taken from
+# "ratparam.m") doesn't match value reported by Campbell et al. (2014), which
+# was 1.6 (minor discrepancy). HRPB value here (taken from "ratparam.m") doesn't
+# match value reported by Campbell et al. (2014), which was 3.5 (substantial
+# discrepancy). - DFK 2/15/2018
+
+# Nasal compartment surface areas (cm^2) for ...
+SADR = 0.2;         # ... dorsal respiratory region.
+SADO1 = 0.42;       # ... anterior dorsal olfactory region.
+SADO2 = 6.33;       # ... posterior dorsal olfactory region.
+SAVR1 = 1.8;        # ... anterior ventral respiratory region.
+SAVR2 = 4.5;        # ... posterior ventral respiratory region.
+SAPL = 1.5;         # ... pharynx and larynx.
+SACA = 48.0;        # ... conducting airways.
+SAPU = 3000.0;      # ... pulmonary region.
+# NOTES: SAPL value here (taken from the Campbell-supplied source code file
+# "ratparam.m") matches value reported for "nasopharynx" by Campbell et al.
+# (2014). SACA and SAPU values here (taken from "ratparam.m") are not defined
+# or reported by Campbell et al. (2014). - DFK 2/15/2018
+
+# Epithelial tissue thickness (cm) for ...
+WTDR = 0.005;       # ... dorsal respiratory region.
+WTDO = 0.005;       # ... dorsal olfactory regions (anterior & posterior).
+WTVR = 0.005;       # ... ventral respiratory regions (anterior & posterior).
+WTPL = 0.005;       # ... pharynx and larynx.
+WTCA = 0.005;       # ... conducting airways.
+WTPU = 0.0004;      # ... pulmonary region.
+# NOTES: WTPL value here (taken from the Campbell-supplied source code file
+# "ratparam.m") does *not* match value reported for "nasopharynx" by Campbell et
+# al. (2014), which was 0.0004. WTCA and WTPU values here (taken from
+# "ratparam.m") are not defined or reported by Campbell et al. (2014), but value
+# reported by those authors for "nasopharynx" matches value provided in
+# "ratparam.m" (and here) for *pulmonary region*. - DFK 2/15/2018
+
+# Mucus/submucosa thickness (cm) for ...
+WMUCUS = 0.001;     # ... mucus.
+WXDR = 0.002;       # ... dorsal respiratory region.
+WXDO = 0.002;       # ... dorsal olfactory regions (anterior & posterior).
+WXVR = 0.002;       # ... ventral respirator regions (anterior & posterior).
+WXPL = 0.002;       # ... pharynx and larynx.
+WXCA = 0.002;       # ... conducting airways.
+# NOTES: The submucosa thicknesses are also referred to as "blood exchange
+# region thicknesses" in the Campbell-supplied source code file "napth.csl".
+# All values here (taken from the Campbell-supplied source code file
+# "ratparam.m") match the value(s) attributed to Plowchalk et al. (1997) by
+# Campbell et al. (2014); however, WXCA value is not defined or reported by
+# Campbell et al. (2014), and they report a value for "nasopharynx" but nothing
+# for "pharynx and larynx". - DFK 2/15/2018
+
+# Lumen volumes (cm^3 or mL) for ...
+VLDR = 0.004;       # ... dorsal respiratory region.
+VLDO1 = 0.012;      # ... anterior dorsal olfactory region.
+VLDO2 = 0.054;      # ... posterior dorsal olfactory region.
+VLVR1 = 0.09;       # ... anterior ventral respiratory region.
+VLVR2 = 0.09;       # ... posterior ventral respiratory region.
+VLPL = 0.06;        # ... pharynx and larynx.
+VLCA = 0.53;        # ... conducting airways.
+# NOTES: All values here (taken from the Campbell-supplied source code file
+# "ratparam.m") match the value(s) attributed to Bogdanffy et al. (1999) by
+# Campbell et al. (2014); however, VLCA value is not defined or reported by
+# Campbell et al. (2014), and they report a value for "nasopharynx" but nothing
+# for "pharynx and larynx". - DFK 2/15/2018
+
+# Air-phase mass transfer coefficients (cm/min) for ...
+KGDR = 8000.0;      # ... dorsal respiratory region.
+KGDO1 = 7167.0;     # ... anterior dorsal olfactory region.
+KGDO2 = 26667.0;    # ... posterior dorsal olfactory region.
+KGVR1 = 34680.0;    # ... anterior ventral respiratory region.
+KGVR2 = 183333.0;   # ... posterior ventral respiratory region.
+KGPL = 5000.0;      # ... pharynx and larynx.
+KGCA = 225.0;       # ... conducting airways.
+# NOTES: All values here (taken from the Campbell-supplied source code file
+# "ratparam.m") match the value(s) attributed to Bogdanffy et al. (1999) and/or
+# Frederick et al. (1998) by Campbell et al. (2014); however, Campbell et al.
+# (2014) report a value for "nasopharynx" but nothing for "pharynx and larynx".
+# - DFK 2/15/2018
+
+# Diffusivity constant.
+DIFU = 4.5e-4;      # Diffusivity in water (cm^2/min).
+# NOTES: Comments in Campbell-supplied source code file "napth.csl" imply this
+# value was taken from EPA "Soil Screening Guidance" document at
+#   http://www.epa.gov/superfund/health/conmedia/soil/pdfs/attachc.pdf.
+# That URL cannot be accessed as of 2/16/2018, but there is a "Superfund Soil
+# Screening Guidance" page at
+#   https://www.epa.gov/superfund/superfund-soil-screening-guidance.
+# I was unable to easily find the value reported here. NEEDS REVIEW.
+# - DFK 2/16/2018
+
+# Molar mass (g/mol) for ...
+MW1 = 128.17;       # ... naphthalene!
+
+# PPM to nmol/mL conversion. NOTES: First we compute density of gas...
+# Density of gas based on Ideal Gas Law. We assume PV = nRT, where P is pressure
+# (in atm), V is volume (in L), n is number of moles (mol), R is the ideal gas
+# constant (0.08206 L*atm/mol/K), and T is the temperature (in K). At 1 atm and
+# 20 deg C (or 293.15 K), the density of gas is n/V = P/RT = 1/(0.08206*293.15)
+# = 0.04 mol/L. Now, at this density, 1 part per million (ppm) would be
+# 0.04 * 1e-6 = 4e-8 mol/L = 4e-11 mol/mL = 4e-2 nmol/mL. This value is used
+# for conversions from ppm to nmol/mL in the Campbell-supplied source code, but
+# is not declared as a variable there. - DFK 2/16/2018
+PPMtoNMPML = 0.04;
+
+# Metabolism parameters.
+VmaxLI = 21.8;      # Vmax in liver (nmol/min/mL).
+KmLI = 6.0;         # Km in liver (nmol/mL).
+VmaxLU = 3.8;       # Vmax in lung (nmol/min/mL).
+KmLU = 40.0;        # Km in lung (nmol/mL).
+VmaxO = 169.8;      # Vmax in DR and DO regions (nmol/min/mL).
+KmO = 70.0;         # Km in DR and DO regions (nmol/mL).
+VmaxV = 43.5;       # Vmax in VR regions (nmol/min/mL).
+KmV = 11.5;         # Km in VR regions (nmol/mL).
+# NOTES: All values here (taken from the Campbell-supplied source code file
+# "ratparam.m") match the values reported in Table 3 of Campbell et al. (2014),
+# *except* they report a value of 11.6 for Km for the ventral respiratory
+# regions (minor discrepancy). - DFK 2/15/2018
+
+# Fractional ventilation rates to ...
+FADR = 0.15;        # ... dorsal respiratory region.
+FADO = 0.15;        # ... dorsal olfactory regions.
+FAVR = 0.85;        # ... ventral respiratory regions.
+# NOTES: All values here are taken from the Campbell-supplied source code file
+# "ratparam.m". The Campbell-supplied source code file "napth.csl" claims these
+# values come from the "EPA PK doc". VERIFY. - DFK 2/15/2018
+
+# Parameters to be computed in MODEL INITIALIZATION. The values of these
+# parameters depend on values of the parameters already defined.
+VTDR = 0.0;
+VTDO1 = 0.0;
+VTDO2 = 0.0;
+VTVR1 = 0.0;
+VTVR2 = 0.0;
+VTPL = 0.0;
+VTCA = 0.0;
+VTPU = 0.0;
+VXDR = 0.0;
+VXDO1 = 0.0;
+VXDO2 = 0.0;
+VXVR1 = 0.0;
+VXVR2 = 0.0;
+VXPL = 0.0;
+VXCA = 0.0;
+VTLUNG = 0.0;
+SAURT = 0.0;
+VTLI = 0.0;
+VFAT = 0.0;
+VTSC = 0.0;
+VTVE = 0.0;
+VTRP = 0.0;
+VTPP = 0.0;
+VTAB = 0.0;
+VTVB = 0.0;
+VTREM = 0.0;
+SCDX = 0.0;
+BW = 0.0;
+MV = 0.0;
+VPU = 0.0;
+VDR = 0.0;
+VDO = 0.0;
+VVR = 0.0;
+QPUa = 0.0;
+FBDR = 0.0; 
+FBDO1 = 0.0;
+FBDO2 = 0.0;
+FBVR1 = 0.0;
+FBVR2 = 0.0;
+FBPL = 0.0;
+QDR = 0.0;
+QDO1 = 0.0;
+QDO2 = 0.0;
+QVR1 = 0.0;
+QVR2 = 0.0;
+QPL = 0.0;
+QCA = 0.0;
+QLI = 0.0;
+QVE = 0.0;
+QRP = 0.0;
+QPP = 0.0;
+QFA = 0.0;
+QPU = 0.0;
+HTA = 0.0;
+MTCDR = 0.0;
+MTCDO1 = 0.0;
+MTCDO2 = 0.0;
+MTCVR1 = 0.0;
+MTCVR2 = 0.0;
+MTCPL = 0.0;
+MTCCA = 0.0;
+KTXDR = 0.0;
+KTXDO1 = 0.0;
+KTXDO2 = 0.0;
+KTXVR1 = 0.0;
+KTXVR2 = 0.0;
+KTXPL = 0.0;
+KTXCA = 0.0;
+# CIN = 0.0;
+# CINa = 0.0;
+# IVDOSENM = 0.0;
+# RIV = 0.0;
+
+# End of PARAMETERS.
+#------------------------------------------------------------------------------
+
+
+
+#------------------------------------------------------------------------------
+# MODEL INITIALIZATION section.
+Initialize {
+    # ----- Calculated parameters -----
+    # Here we compute values of parameters that depend on constant parameters
+    # that have already been defined.
+
+    # Volumes (mL) of epithelial tissue in ...
+    VTDR = SADR * WTDR;     # ... dorsal respiratory region.
+    VTDO1 = SADO1 * WTDO;   # ... anterior dorsal olfactory region.
+    VTDO2 = SADO2 * WTDO;   # ... posterior dorsal olfactory region.
+    VTVR1 = SAVR1 * WTVR;   # ... anterior ventral respiratory region.
+    VTVR2 = SAVR2 * WTVR;   # ... posterior ventral respiratory region.
+    VTPL = SAPL * WTVR;     # ... pharynx and larynx.
+    VTCA = SACA * WTCA;     # ... conducting airways.
+    VTPU = SAPU * WTPU;     # ... pulmonary region.
+
+    # Volumes (mL) of submucosa (or blood exchange areas) in ...
+    VXDR = SADR * WXDR;     # ... dorsal respiratory region.
+    VXDO1 = SADO1 * WXDO;   # ... anterior dorsal olfactory region.
+    VXDO2 = SADO2 * WXDO;   # ... posterior dorsal olfactory region.
+    VXVR1 = SAVR1 * WXVR;   # ... anterior ventral respiratory region.
+    VXVR2 = SAVR2 * WXVR;   # ... posterior ventral respiratory region.
+    VXPL = SAPL * WXVR;     # ... pharynx and larynx.
+    VXCA = SACA * WXCA;     # ... conducting airways.
+
+    # Total volume (mL) of respiratory tract tissue.
+    VTLUNG = VTDR + VTDO1 + VTDO2 + VTVR1 + VTVR2 + VTPL + VTCA + VTPU
+        + VXDR + VXDO1 + VXDO2 + VXVR1 + VXVR2 + VXPL + VXCA;
+    # NOTES: Variable name VTLUNG (used here for consistency with Campbell-
+    # supplied source code files) seems to be misleading, as this quantity
+    # actually represents total tissue volume of the upper respiratory tract,
+    # *not* the tissue volume of the lung. - DFK 2/16/2018
+    
+    # Total surface area (cm^2) of respiratory tract tissue.
+    SAURT = SADR + SADO1 + SADO2 + SAVR1 + SAVR2 + SAPL;
+
+    # Volumes (mL) of ...
+    VTLI = FTLI * BWinit;           # ... liver tissue.
+    VFAT = FFAT * BWinit;           # ... fat tissue.
+    VTSC = AEXP * TSC;              # ... (exposed) stratum corneum.
+    VTVE = AEXP * TVE;              # ... (exposed) viable epidermis.
+    VTRP = FTRP * BWinit - VTVE;    # ... richly perfused tissue.
+    VTPP = FTPP * BWinit;           # ... poorly perfused tissue.
+    VTAB = FTABD * BWinit;          # ... arterial blood.
+    VTVB = FTVBD * BWinit;          # ... venous blood.
+    VTREM = FTREM * BWinit;         # ... remaining tissue.
+
+    # Discretization thickness for stratum corneum partial differential
+    # equation discretization.
+    SCDX = TSC / 10;
+
+    # Total body mass (g).
+    BW = VTLI + VFAT + VTRP + VTPP + VTAB + VTVB + VTLUNG + VTREM + VTVE;
+    # NOTES: Using default values (for rat), BWinit is 315 and BW is 315.0013.
+    # - DFK 2/15/2018
+
+    # Minute ventilation rate (mL/min).
+    MV = MVc * pow(BW, 0.75);
+
+    # Ventilation rates (mL/min) to ...
+    VPU = 0.67 * MV;        # ... alveolar region.
+    VDR = FADR * MV;        # ... dorsal respiratory region.
+    VDO = FADO * MV;        # ... dorsal olfactory regions.
+    VVR = FAVR * MV;        # ... ventral respiratory regions.
+
+    # Cardiac output (mL/min).
+    QPUa = QPUc * pow(BW, 0.75);
+
+    # Fractional blood flows based on fractional surface areas for...
+    FBDR = (SADR / SAURT) * FBURT;      # ... dorsal respiratory region.
+    FBDO1 = (SADO1 / SAURT) * FBURT;    # ... anterior dorsal olfactory region.
+    FBDO2 = (SADO2 / SAURT) * FBURT;    # ... posterior dorsal olfactory region.
+    FBVR1 = (SAVR1 / SAURT) * FBURT;    # ... anterior VR region.
+    FBVR2 = (SAVR2 / SAURT) * FBURT;    # ... posterior VR region.
+    FBPL = (SAPL / SAURT) * FBURT;      # ... pharynx and larynx.
+
+    # Blood flows (mL/min) to ...
+    QDR = FBDR * QPUa;          # ... dorsal respiratory region.
+    QDO1 = FBDO1 * QPUa;        # ... anterior dorsal olfactory region.
+    QDO2 = FBDO2 * QPUa;        # ... posterior dorsal olfactory region.
+    QVR1 = FBVR1 * QPUa;        # ... anterior ventral respiratory region.
+    QVR2 = FBVR2 * QPUa;        # ... posterior ventral respiratory region.
+    QPL = FBPL * QPUa;          # ... pharynx and larynx.
+    QCA = FBCA * QPUa;          # ... conduction airways.
+    QLI = FBLI * QPUa;          # ... liver.
+    QVE = FBRP * (VTVE / VTRP) * QPUa;  # ... viable epidermis.
+    QRP = FBRP * QPUa - QVE;    # ... richly perfused tissue.
+    QPP = FBPP * QPUa;          # ... poorly perfused tissue.
+    QFA = FBFA * QPUa;          # ... fat tissue.
+
+    # Total blood flow. COMPARE with QPUa. - DFK 2/15/2018
+    QPU = QDR + QDO1 + QDO2 + QVR1 + QVR2 + QPL + QCA + QLI + QVE + QRP + QPP
+        + QFA;
+
+    # Tissue:air partition coefficient.
+    HTA = HBA * HTB;
+
+    # NOTE: Mass transfer coefficient calculations below are based on theory
+    # similar to total resistance of resistors in parallel. - DFK 4/3/2018
+
+    # Mass transfer coefficient (cm/min) for dorsal respiratory region.
+    MTCDR = 1 / (1 / KGDR + 1 / ((DIFU / (WMUCUS + 0.5 * WTDR)) * HTA));
+
+    # Mass transfer coefficient (cm/min) for anterior dorsal olfactory region.
+    MTCDO1 = 1 / (1 / KGDO1 + 1 / ((DIFU /(WMUCUS + 0.5 * WTDO)) * HTA));
+
+    # Mass transfer coefficient (cm/min) for posterior dorsal olfactory region.
+    MTCDO2 = 1 / (1 / KGDO2 + 1 / ((DIFU / (WMUCUS + 0.5 * WTDO)) * HTA));
+
+    # Mass transfer coefficient (cm/min) for anterior ventral respiratory
+    # region.
+    MTCVR1 = 1 / (1 / KGVR1 + 1 / ((DIFU / (WMUCUS + 0.5 * WTVR)) * HTA));
+
+    # Mass transfer coefficient (cm/min) for posterior ventral respiratory
+    # region.
+    MTCVR2 = 1 / (1 / KGVR2 + 1 / ((DIFU / (WMUCUS + 0.5 * WTVR)) * HTA));
+
+    # Mass transfer coefficient (cm/min) for pharynx and larynx.
+    MTCPL = 1 / (1 / KGPL + 1 / ((DIFU / (WMUCUS + 0.5 * WTPL)) * HTA));
+
+    # Mass transfer coefficient (cm/min) for conducting airways.
+    MTCCA = 1 / (1 / KGCA + 1 / ((DIFU / (WMUCUS + 0.5 * WTCA)) * HTA));
+
+    # Diffusion coefficient (mL/min) for ...
+    KTXDR = DIFU * SADR / (WTDR / 2 + WXDR / 2);    # ... DR region.
+    KTXDO1 = DIFU * SADO1 / (WTDO / 2 + WXDO / 2);  # ... anterior OR region.
+    KTXDO2 = DIFU * SADO2 / (WTDO / 2 + WXDO / 2);  # ... posterior OR region.
+    KTXVR1 = DIFU * SAVR1 / (WTVR / 2 + WXVR / 2);  # ... anterior VR region.
+    KTXVR2 = DIFU * SAVR2 / (WTVR / 2 + WXVR / 2);  # ... posterior VR region.
+    KTXPL = DIFU * SAPL / (WTPL / 2 + WXPL / 2);    # ... pharynx and larynx.
+    KTXCA = DIFU * SACA / (WTCA / 2 + WXCA / 2);    # ... conducting airways.
+
+
+    # ----- State Variables -----
+    
+    # Assign an initial value for each state.
+    RIV = 0.0;          # Rate of intravenous dosing (nmol/min).
+    AIV = 0.0;          # Total amount provided intravenously (nmol).
+    RORAL = 0.0;        # Rate of oral dosing (nmol/min).
+    AORAL = 0.0;        # Total amount provided orally (nmol).
+    CIN = 0.0;          # Concentration in ambient air (nmol/mL).
+    AWELL = 0.0;        # Total amount in skin exposure well (nmol).
+    CSC01 = 0.0;        # Concentration in stratum corneum at depth 1 (nmol/mL).
+    CSC02 = 0.0;        # Concentration in stratum corneum at depth 2 (nmol/mL).
+    CSC03 = 0.0;        # Concentration in stratum corneum at depth 3 (nmol/mL).
+    CSC04 = 0.0;        # Concentration in stratum corneum at depth 4 (nmol/mL).
+    CSC05 = 0.0;        # Concentration in stratum corneum at depth 5 (nmol/mL).
+    CSC06 = 0.0;        # Concentration in stratum corneum at depth 6 (nmol/mL).
+    CSC07 = 0.0;        # Concentration in stratum corneum at depth 7 (nmol/mL).
+    CSC08 = 0.0;        # Concentration in stratum corneum at depth 8 (nmol/mL).
+    CSC09 = 0.0;        # Concentration in stratum corneum at depth 9 (nmol/mL).
+    ADERM = 0.0;        # Total amount absorbed through skin (nmol).
+    AGUTL = 0.0;        # Amount in gut lumen (nmol).
+    ALDR = 0.0;         # Amount in dorsal respiratory lumen (nmol).
+    AMTDR = 0.0;        # Total amount metabolized in DR tissue (nmol).
+    ATDR = 0.0;         # Amount in dorsal respiratory tissue (nmol).
+    AXDR = 0.0;         # Amount in dorsal respiratory exchange area (nmol).
+    ALDO1 = 0.0;        # Amount in anterior dorsal olfactory lumen (nmol).
+    AMTO1 = 0.0;        # Total amount metabolized in anterior DO tissue (nmol).
+    ATDO1 = 0.0;        # Amount in anterior dorsal olfactory tissue (nmol).
+    AXDO1 = 0.0;        # Amount in anterior DR blood exchange area (nmol).
+    ALDO2 = 0.0;        # Amount in posterior dorsal olfactory lumen (nmol).
+    AMTO2 = 0.0;        # Total amount metabolized in posterior DO tissue (nmol).
+    ATDO2 = 0.0;        # Amount in posterior dorsal olfactory tissue (nmol).
+    AXDO2 = 0.0;        # Amount in posterior DR blood exchange area (nmol).
+    ALVR1 = 0.0;        # Amount in anterior ventral respiratory lumen (nmol).
+    AMTV1 = 0.0;        # Total amount metabolized in anterior VR tissue (nmol).
+    ATVR1 = 0.0;        # Amount in anterior ventral respiratory tissue (nmol).
+    AXVR1 = 0.0;        # Amount in anterior VR blood exchange area (nmol).
+    ALVR2 = 0.0;        # Amount in posterior ventral respiratory lumen (nmol).
+    AMTV2 = 0.0;        # Total amount metabolized in post. VR tissue (nmol).
+    ATVR2 = 0.0;        # Amount in posterior ventral respiratory tissue (nmol).
+    AXVR2 = 0.0;        # Amount in posterior VR blood exchange area (nmol).
+    ALPL = 0.0;         # Amount in pharynx and larynx lumen (nmol).
+    ATPL = 0.0;         # Amount in pharynx and larynx tissue (nmol).
+    AXPL = 0.0;         # Amount in PL blood exchange area (nmol).
+    ALCA = 0.0;         # Amount in conducting airways lumen (nmol).
+    ATCA = 0.0;         # Amount in conducting airways tissue (nmol).
+    AXCA = 0.0;         # Amount in CA blood exchange area (nmol).
+    ATPU = 0.0;         # Amount in pulmonary tissue (nmol).
+    AMLPU = 0.0;        # Total amount metabolized in pulmonary tissue (nmol).
+    ALI = 0.0;          # Amount in liver tissue (nmol).
+    AML = 0.0;          # Total amount metabolized in liver tissue (nmol).
+    AFA = 0.0;          # Amount in fat tissue (nmol).
+    ARP = 0.0;          # Amount in richly perfused tissue (nmol).
+    APP = 0.0;          # Amount in poorly perfused tissue (nmol).
+    AVE = 0.0;          # Amount in viable epidermis (nmol).
+    AAB = 0.0;          # Amount in arterial blood (nmol).
+    AVB = 0.0;          # Amount in venous blood (nmol).
+    AIN = 0.0;          # Net amount that has entered organism (nmol).
+    AUC_CAB_UG = 0.0;   # AUC for arterial blood (ug/mL*min).
+    AUC_CTDO_UG = 0.0;  # AUC for DO tissue (ug/mL*min).
+    CMTDO_UG = 0.0;     # Concentration of metabolite in DO tissue (ug/mL).
+    AUC_CMTDO_UG = 0.0; # AUC for metabolite in DO tissue (ug/mL*min).
+    AUC_RCMTDO_UG = 0.0;    # AUC for rate of production of metabolite in DO per
+                            #  unit volume (ug/mL).
+    CMBODY_UG = 0.0;    # Concentration of metabolite in whole body (ug/mL).
+    AUC_CMBODY_UG = 0.0;# AUC for metabolite in whole body (ug/mL*min).
+    AUC_RCMBODY_UG = 0.0;   # AUC for rate of production of metabolite in whole
+                            #  body per unit body mass (ug/kg).
+    CTDOALT_UG = 0.0;   # Concentration (alternate) in DO tissue (ug/mL).
+    AUC_CTDOALT_UG = 0.0;   # AUC for conc. (alt) in DO tissue (um/mL*min).
+    AUC_RDELDO_UG = 0.0;    # AUC for rate of delivery to DO tissue per unit
+                            #  area (ug/cm^2).
+}
+# End of MODEL INITIALIZATION.
+#------------------------------------------------------------------------------
+
+
+#------------------------------------------------------------------------------
+# DYNAMICS section.
+Dynamics {
+    # ----- Concentrations -----
+
+    # Naphthalene internal concentrations (nmol/mL) in ...
+    CLDR = ALDR / VLDR;         # ... dorsal respiratory lumen.
+    CTDR = ATDR / VTDR;         # ... dorsal respiratory tissue.
+    CXDR = AXDR / VXDR;         # ... dorsal respiratory blood exchange area.
+    CLDO1 = ALDO1 / VLDO1;      # ... anterior dorsal olfactory lumen.
+    CTDO1 = ATDO1 / VTDO1;      # ... anterior dorsal olfactory tissue.
+    CXDO1 = AXDO1 / VXDO1;      # ... anterior DO blood exchange area.
+    CLDO2 = ALDO2 / VLDO2;      # ... posterior dorsal olfactory lumen.
+    CTDO2 = ATDO2 / VTDO2;      # ... posterior dorsal olfactory tissue.
+    CXDO2 = AXDO2 / VXDO2;      # ... posterior DO blood exchange area.
+    CLVR1 = ALVR1 / VLVR1;      # ... anterior ventral respiratory lumen.
+    CTVR1 = ATVR1 / VTVR1;      # ... anterior ventral respiratory tissue.
+    CXVR1 = AXVR1 / VXVR1;      # ... anterior VR blood exchange area.
+    CLVR2 = ALVR2 / VLVR2;      # ... posterior ventral respiratory lumen.
+    CTVR2 = ATVR2 / VTVR2;      # ... posterior ventral respiratory tissue.
+    CXVR2 = AXVR2 / VXVR2;      # ... posterior VR blood exchange area.
+    CURT = (VVR * CLVR2 + VDO * CLDO2) / (VVR + VDO); # ... upper resp. tract.
+    CLPL = ALPL / VLPL;         # ... pharynx and larynx lumen.
+    CTPL = ATPL / VTPL;         # ... pharynx and larynx tissue.
+    CXPL = AXPL / VXPL;         # ... pharynx and larynx blood exchange area.
+    CLCA = ALCA / VLCA;         # ... conducting airways lumen.
+    CTCA = ATCA / VTCA;         # ... conducting airways tissue.
+    CXCA = AXCA / VXCA;         # ... conducting airways blood exchange area.
+    CTPU = ATPU / VTPU;         # ... pulmonary tissue.
+    CvTPU = CTPU / HLUB;        # ... veins leaving pulmonary tissue.
+    CLPU = CvTPU / HBA;         # ... pulmonary lumen.
+    CLI = ALI / VTLI;           # ... liver tissue.
+    CvLI = CLI / HLB;           # ... veins leaving liver tissue.
+    CFA = AFA / VFAT;           # ... fat tissue.
+    CvFA = CFA / HFB;           # ... veins leaving fat tissue.
+    CRP = ARP / VTRP;           # ... richly perfused tissue.
+    CvRP = CRP / HRPB;          # ... veins leaving richly perfused tissue.
+    CPP = APP / VTPP;           # ... poorly perfused tissue.
+    CvPP = CPP / HPPB;          # ... veins leaving poorly perfused tissue.
+    CAB = AAB / VTAB;           # ... arterial blood.
+    CVB = AVB / VTVB;           # ... venous blood.
+    CVE = VTVE > 0 ? AVE / VTVE : 0.0;           # ... viable epidermis.
+    CvVE = CVE / HVEB;          # ... veins leaving viable epidermis.
+    CWELL = VWELL > 0 ? AWELL / VWELL : 0.0;     # ... skin exposure well.
+    CSC00 = VWELL > 0 ? CWELL * HSCJP8 : CSC01;  # ... outer surface of SC.
+                                # NOTE: If VWELL is 0, this assignment leads to
+                                # zero flux at the outer surface of the SC.
+    CSC10 = CVE * HSCVE;        # ... interface of SC with VE.
+
+    # Naphthalene internal concentrations (ug/mL) in ...
+    CAB_UG = (CAB * MW1) / 1000;    # ... arterial blood.
+
+    # Naphthalene internal concentration (nmol/mL) in blood of ...
+    FCTDR = CTDR / HTB;         # ... dorsal respiratory tissue.
+    FCXDR = CXDR / HTB;         # ... dorsal respiratory blood exchange area.
+    FCTDO1 = CTDO1 / HTB;       # ... anterior dorsal olfactory tissue.
+    FCXDO1 = CXDO1 / HTB;       # ... anterior DO blood exchange area.
+    FCTDO2 = CTDO2 / HTB;       # ... posterior dorasal olfactory tissue.
+    FCXDO2 = CXDO2 / HTB;       # ... posterior DO blood exchange area.
+    FCTVR1 = CTVR1 / HTB;       # ... anterior ventral respiratory tissue.
+    FCXVR1 = CXVR1 / HTB;       # ... anterior VR blood exchange area.
+    FCTVR2 = CTVR2 / HTB;       # ... posterior ventral respiratory tissue.
+    FCXVR2 = CXVR2 / HTB;       # ... posterior VR blood exchange area.
+    FCTPL = CTPL / HTB;         # ... pharynx and larynx tissue.
+    FCXPL = CXPL / HTB;         # ... pharynx and larynx blood exchange area.
+    FCTCA = CTCA / HTB;         # ... conducting airways tissue.
+    FCXCA = CXCA / HTB;         # ... conducting airways blood exchange area.
+
+    # ---- Amounts (not computed using ODEs) ----
+    # Amount in stratum corneum (nmol).
+    ASC = SCDX * (0.5 * CSC00 + CSC01 + CSC02 + CSC03 + CSC04 + CSC05 + CSC06
+        + CSC07 + CSC08 + CSC09 + 0.5 * CSC10) * AEXP;
+
+    # ----- Fluxes -----
+    # Naphthalene fluxes (nmol/cm^2/min) at ...
+    JSC00 = -DSC * (CSC01 - CSC00) / SCDX;   # ... outer surface of SC.
+    JSC10 = -DSC * (CSC10 - CSC09) / SCDX;   # ... interface of SC with VE.
+    
+    
+    # ----- Time rates of change of state variables (ODEs) -----
+
+    #
+    # Exposure/Dosing State Variables
+    #
+    
+    # Rate of change of intravenous dose rate (nmol/min/min). NOTE: Making RIV
+    # a state variable allows one to modify it over the course of a simulation
+    # using the "events" feature of the R package deSolve.. - DFK 2/21/2018
+    dt(RIV) = 0.0;
+
+    # Rate of change of total (cumulative) amount provided intravenously
+    # (nmol/min).
+    dt(AIV) = RIV;
+    
+    # Rate of change of oral dose rate (nmol/min/min). NOTE: Making RORAL
+    # a state variable allows one to modify it over the course of a simulation
+    # using the "events" feature of the R package deSolve.. - DFK 7/17/2024
+    dt(RORAL) = 0.0;
+
+    # Rate of change of total (cumulative) amount provided orally (nmol/min).
+    dt(AORAL) = RORAL;
+
+    # Rate of change of concentration in ambient air (nmol/mL/min). NOTE: Making
+    # CIN a state variable allows one to modify it over the course of a
+    # simulation using the "events" feature of the R package deSolve.
+    # - DFK 2/22/2018
+    dt(CIN) = 0.0;
+
+    # Rate of change of total amount absorbed through skin (ug/min).
+    RADERM = JSC00 * AEXP;
+    dt(ADERM) = RADERM;
+
+
+    #
+    # Dorsal Respiratory Region (DR)
+    #
+
+    # Rate of change of amount in dorsal respiratory lumen (nmol/min).
+    RALDR = VDR * (CIN - CLDR) - MTCDR * SADR * (CLDR - CTDR / HTA);
+    dt(ALDR) = RALDR;
+
+    # Rate of change of total amount metabolized in DR tissue (nmol/min).
+    RMTDR = VTDR * VmaxO * FCTDR / (KmO + FCTDR);
+    dt(AMTDR) = RMTDR;
+
+    # Rate of change of amount in dorsal respiratory tissue (nmol/min).
+    RATDR = MTCDR * SADR * (CLDR - CTDR / HTA) - KTXDR * (FCTDR - FCXDR)
+        - RMTDR;
+    # RATDR = 0.0;
+    dt(ATDR) = RATDR;
+
+    # Rate of change of amount in DR blood exchange area (nmol/min).
+    RAXDR = KTXDR * (FCTDR - FCXDR) - QDR * (CXDR / HTB - CAB);
+    dt(AXDR) = RAXDR;
+
+
+    #
+    # Anterior Dorsal Olfactory Region (DO1)
+    #
+
+    # Rate of change of amount in anterior dorsal olfactory lumen (nmol/min).
+    RALDO1 = VDO * (CLDR - CLDO1) - MTCDO1 * SADO1 * (CLDO1 - CTDO1 / HTA);
+    dt(ALDO1) = RALDO1;
+
+    # Rate of change of amount metabolized in anterior DO tissue (nmol/min).
+    RMTO1 = VTDO1 * VmaxO * FCTDO1 / (KmO + FCTDO1);
+    dt(AMTO1) = RMTO1;
+
+    # Rate of change of amount in anterior dorsal olfactory tissue (nmol/min).
+    RATDO1 = MTCDO1 * SADO1 * (CLDO1 - CTDO1 / HTA) - KTXDO1 * (FCTDO1 - FCXDO1)
+        - RMTO1;
+    dt(ATDO1) = RATDO1;
+
+    # Rate of change of amount in anterior DO blood exchange area (nmol/min).
+    RAXDO1 = KTXDO1 * (FCTDO1 - FCXDO1) - QDO1 * (CXDO1 / HTB - CAB);
+    dt(AXDO1) = RAXDO1;
+
+
+    #
+    # Posterior Dorsal Olfactory Region (DO2)
+    #
+
+    # Rate of change of amount in posterior dorsal olfactory lumen (nmol/min).
+    RALDO2 = VDO * (CLDO1 - CLDO2) - MTCDO2 * SADO2 * (CLDO2 - CTDO2 / HTA);
+    dt(ALDO2) = RALDO2;
+
+    # Rate of change of amount metabolized in posterior DO tissue (nmol/min).
+    RMTO2 = VTDO2 * VmaxO * FCTDO2 /(KmO + FCTDO2);
+    dt(AMTO2) = RMTO2;
+
+    # Rate of change of amount in posterior dorsal olfactory tissue (nmol/min).
+    RATDO2 = MTCDO2 * SADO2 * (CLDO2 - CTDO2 / HTA) - KTXDO2 * (FCTDO2 - FCXDO2)
+        - RMTO2;
+    # RATDO2 = 0.0;
+    dt(ATDO2) = RATDO2;
+
+    # Rate of change of amount in posterior DO blood exchange area (nmol/min).
+    RAXDO2 = KTXDO2 * (FCTDO2 - FCXDO2) - QDO2 * (CXDO2 / HTB - CAB);
+    dt(AXDO2) = RAXDO2;
+
+
+    #
+    # Anterior Ventral Respiratory Region (VR1)
+    #
+
+    # Rate of change of amount in anterior ventral respiratory lumen (nmol/min).
+    RALVR1 = VVR * (CIN - CLVR1) - MTCVR1 * SAVR1 * (CLVR1 - CTVR1 / HTA);
+    dt(ALVR1) = RALVR1;
+
+    # Rate of change of amount metabolized in anterior VR tissue (nmol/min).
+    RMTV1 = VTVR1 * VmaxV * FCTVR1 / (KmV + FCTVR1);
+    dt(AMTV1) = RMTV1;
+
+    # Rate of change of amount in anterior VR tissue (nmol/min).
+    RATVR1 = MTCVR1 * SAVR1 * (CLVR1 - CTVR1/HTA) - KTXVR1 * (FCTVR1 - FCXVR1)
+        - RMTV1;
+    dt(ATVR1) = RATVR1;
+
+    # Rate of change of amount in anterior VR blood exchange area (nmol/min).
+    RAXVR1 = KTXVR1 * (FCTVR1 - FCXVR1)  - QVR1 * (CXVR1 / HTB - CAB);
+    dt(AXVR1) = RAXVR1;
+
+
+    #
+    # Posterior Ventral Respiratory Region (VR2)
+    #
+
+    # Rate of change of amount in posterior VR lumen (nmol/min).
+    RALVR2 = VVR * (CLVR1 - CLVR2) - MTCVR2 * SAVR2 * (CLVR2 - CTVR2 / HTA);
+    dt(ALVR2) = RALVR2;
+
+    # Rate of change of amount metabolized in posterior VR tissue (nmol/min).
+    RMTV2 = VTVR2 * VmaxV * FCTVR2 / (KmV + FCTVR2);
+    dt(AMTV2) = RMTV2;
+
+    # Rate of change of amount in posterior VR tissue (nmol/min).
+    RATVR2 = MTCVR2 * SAVR2 * (CLVR2 - CTVR2 / HTA) - KTXVR2 *(FCTVR2 - FCXVR2)
+        - RMTV2;
+    dt(ATVR2) = RATVR2;
+
+    # Rate of change of amount in anterior VR blood exchange area (nmol/min).
+    RAXVR2 = KTXVR2* (FCTVR2 - FCXVR2) - QVR2 * (CXVR2/HTB - CAB);
+    dt(AXVR2) = RAXVR2;
+
+
+    #
+    # Pharynx and Larynx Region (PL)
+    #
+
+    # Rate of change of amount in pharynx and larynx lumen (nmol/min).
+    RALPL = MV * (CURT - CLPL) - MTCPL * SAPL * (CLPL - CTPL / HTA);
+    dt(ALPL) = RALPL;
+
+    # Rate of change of amount in pharynx and larynx tissue (nmol/min).
+    RATPL = MTCPL * SAPL * (CLPL - CTPL / HTA) - KTXPL * (FCTPL - FCXPL);
+    dt(ATPL) = RATPL;
+
+    # Rate of change of amount in PL blood exchange area (nmol/min).
+    RAXPL = KTXPL * (FCTPL - FCXPL) - QPL * (CXPL / HTB - CAB);
+    dt(AXPL) = RAXPL;
+
+    #
+    # Conducting Airways Region (CA)
+    #
+
+    # Rate of change of amount in conducting airways lumen (nmol/min).
+    RALCA = MV * (CLPL - CLCA) - MTCCA * SACA * (CLCA - CTCA / HTA);
+    dt(ALCA) = RALCA;
+
+    # Rate of change of amount in conducting airways tissue (nmol/min).
+    RATCA = -KTXCA * (FCTCA - FCXCA) + MTCCA * SACA * (CLCA - CTCA / HTA);
+    dt(ATCA) = RATCA;
+
+    # Rate of change of amount in CA blood exchange area (nmol/min).
+    RAXCA = KTXCA * (FCTCA - FCXCA) - QCA * (CXCA / HTB - CAB);
+    dt(AXCA) = RAXCA;
+
+    #
+    # Pulmonary Region (PU)
+    #
+
+    # Rate of change of amount metabolized in pulmonary tissue (nmol/min).
+    RMLPU = VTPU * VmaxLU * CvTPU / (KmLU + CvTPU);
+    dt(AMLPU) = RMLPU;
+
+    # Rate of change of amount in pulmonary tissue (nmol/min).
+    RATPU = VPU * (CLCA - CLPU) - QPU * (CvTPU - CVB) - RMLPU;
+    dt(ATPU) = RATPU;
+
+    #
+    # Liver Tissue (LI)
+    #
+
+    # Rate of change of amount metabolized in liver (nmol/min).
+    RML = VTLI * VmaxLI * CvLI / (KmLI + CvLI);
+    dt(AML) = RML;
+
+    # Rate of change of amount in liver tissue (nmol/min).
+    RALI = QLI * (CAB - CvLI) - RML + KABS * AGUTL;
+    dt(ALI) = RALI;
+
+
+    #
+    # Fat Tissue (FA)
+    #
+
+    # Rate of change of amount in fat tissue (nmol/min).
+    RAFA = QFA * (CAB - CvFA);
+    dt(AFA) = RAFA;
+
+
+    #
+    # Richly Perfused Tissue
+    #
+
+    # Rate of change of amount in richly perfused tissue (nmol/min).
+    RARP = QRP * (CAB - CvRP);
+    dt(ARP) = RARP;
+
+
+    #
+    # Poorly Perfused Tissue
+    #
+
+    # Rate of change of amount in poorly perfused tissue (nmol/min).
+    RAPP = QPP * (CAB - CvPP);
+    dt(APP) = RAPP;
+
+
+    #
+    # Dermal Exposure Well
+    #
+    dt(AWELL) = -JSC00 * AEXP;
+    
+    #
+    # Stratum Corneum
+    #
+    dt(CSC01) = DSC * (CSC00 - 2 * CSC01 + CSC02) / (SCDX * SCDX);
+    dt(CSC02) = DSC * (CSC01 - 2 * CSC02 + CSC03) / (SCDX * SCDX);
+    dt(CSC03) = DSC * (CSC02 - 2 * CSC03 + CSC04) / (SCDX * SCDX);
+    dt(CSC04) = DSC * (CSC03 - 2 * CSC04 + CSC05) / (SCDX * SCDX);
+    dt(CSC05) = DSC * (CSC04 - 2 * CSC05 + CSC06) / (SCDX * SCDX);
+    dt(CSC06) = DSC * (CSC05 - 2 * CSC06 + CSC07) / (SCDX * SCDX);
+    dt(CSC07) = DSC * (CSC06 - 2 * CSC07 + CSC08) / (SCDX * SCDX);
+    dt(CSC08) = DSC * (CSC07 - 2 * CSC08 + CSC09) / (SCDX * SCDX);
+    dt(CSC09) = DSC * (CSC08 - 2 * CSC09 + CSC10) / (SCDX * SCDX);
+
+    #
+    # Viable Epidermis
+    #
+
+    # Rate of change of amount in viable epidermis (nmol/min).
+    # RAVE = 0.0;
+    RAVE = JSC10 * AEXP + QVE * (CAB - CvVE);
+    dt(AVE) = RAVE;
+
+    #
+    # Gut Lumen
+    #
+    dt(AGUTL) = -KABS * AGUTL;
+
+    #
+    # Arterial Blood
+    #
+
+    # Rate of change of amount in arterial blood (nmol/min).
+    RAAB = QPU * (CvTPU - CAB);
+    dt(AAB) = RAAB;
+
+
+    #
+    # Venous Blood
+    #
+
+    # Rate of change of amount in venous blood (nmol/min).
+    RAVB = QLI * CvLI + QFA * CvFA + QRP * CvRP + QPP * CvPP + QCA * CXCA / HTB
+        + QPL * CXPL / HTB + QVR1 * CXVR1 / HTB + QVR2 * CXVR2 / HTB
+        + QDO1 * CXDO1 / HTB + QDO2 * CXDO2 / HTB + QDR * CXDR / HTB
+        + QVE * CvVE - QPU * CVB + RIV;
+    dt(AVB) = RAVB;
+
+
+    # ----- Dose metrics -----
+
+    # AUC for concentration in arterial blood (ug/mL*min).
+    dt(AUC_CAB_UG) = CAB_UG;
+    
+    # AUC for concentration in dorsal olfactory tissue (ug/mL*min).
+    CTDO = (ATDO1 + ATDO2) / (VTDO1 + VTDO2);  # (nmol/mL)
+    CTDO_UG = (CTDO * MW1) / 1000;             # (ug/mL)
+    dt(AUC_CTDO_UG) = CTDO_UG;
+
+    # Concentration of metabolite in dorsal olfactory tissue (ug/mL).
+    dt(CMTDO_UG) = (RMTO1 + RMTO2) * (MW1 / 1000) / (VTDO1 + VTDO2) -
+        CMTDO_UG * 1.0 * pow(VTDO1 + VTDO2, 0.75);
+
+    # AUC for concentration of metabolite in DO tissue (~ug/mL*min).
+    dt(AUC_CMTDO_UG) = CMTDO_UG;
+
+    # AUC for rate of production of metabolite in DO per unit volume (ug/mL).
+    RCMTDO_UG = (RMTO1 + RMTO2) * (MW1 / 1000) / (VTDO1 + VTDO2);
+    dt(AUC_RCMTDO_UG) = RCMTDO_UG;
+    
+    # Concentration of metabolite in whole body (ug/mL).
+    dt(CMBODY_UG) = (RMTDR + RMTO1 + RMTO2 + RMTV1 + RMTV2 + RMLPU + RML) *
+        (MW1 / 1000) / BW - CMBODY_UG * 1.0 * pow(BW, 0.75);
+
+    # AUC for concentration of metabolite in whole body (~ug/mL*min).
+    dt(AUC_CMBODY_UG) = CMBODY_UG;
+
+    # AUC for rate of production of metabolite in whole body per unit body mass
+    # (ug/kg).
+    RCMBODY_UG = (RMTDR + RMTO1 + RMTO2 + RMTV1 + RMTV2 + RMLPU + RML) *
+        (MW1 / 1000) / BW;
+    dt(AUC_RCMBODY_UG) = RCMBODY_UG;
+
+    # Concentration (alternate) in dorsal olfactory tissue (~ug/mL).
+    dt(CTDOALT_UG) = (MTCDO1 * SADO1 * (CLDO1 - CTDO1 / HTA) +
+        MTCDO2 * SADO2 * (CLDO2 - CTDO2 / HTA)) * (MW1 / 1000) /
+        (VTDO1 + VTDO2) - CTDOALT_UG * 1.0 * pow(VTDO1 + VTDO2, 0.75);
+
+    # AUC for concentration (alternate) in dorsal olfactory tissue (~ug/mL*min).
+    dt(AUC_CTDOALT_UG) = CTDOALT_UG;
+
+    # AUC for rate of delivery to dorsal olfactory tissue per unit area
+    # (ug/cm^2).
+    RDELDO_UG = (MTCDO1 * SADO1 * (CLDO1 - CTDO1 / HTA) +
+        MTCDO2 * SADO2 * (CLDO2 - CTDO2 / HTA)) * (MW1 / 1000) /
+        (SADO1 + SADO2);
+    dt(AUC_RDELDO_UG) = RDELDO_UG;
+
+
+    # ----- Balance checks -----
+
+    # Rate of change of *net* amount moving into the organism (nmol/min) via
+    # inhaled air, intravenous injection, oral dosing, and skin exposure.
+    RAIN = MV * (CIN - CLCA) + VPU * (CLCA - CLPU) + RIV + RORAL + RADERM;
+    dt(AIN) = RAIN;
+
+    # Total amount in the organism plus cumulative amount that has been
+    # metabolized (nmol).
+    AINa = ALDR + ATDR + AXDR + AMTDR + ALDO1 + ATDO1 + AXDO1 + AMTO1
+        + ALDO2 + ATDO2 + AXDO2 + AMTO2 + ALVR1 + ATVR1 + AXVR1
+        + AMTV1 + ALVR2 + ATVR2 + AXVR2 + AMTV2 + ALPL + ATPL + AXPL
+        + ALCA + ATCA + AXCA + ATPU + AMLPU + AAB + AVB + ALI + AML
+        + AFA + ARP + APP + ASC + AVE + AGUTL;
+}
+# End of DYNAMICS.
+#------------------------------------------------------------------------------
+
+
+End.
