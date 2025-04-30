@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
-##### Variables / Constants
+# Variables / Constants
 
 
 class Identifier(BaseModel):
@@ -25,13 +25,13 @@ Variable = Identifier | DtVariable
 
 
 class Number(BaseModel):
-    value: float
+    value: int | float
 
     def to_mod(self) -> str:
         return str(self.value)
 
 
-##### Mathematical functions
+# Mathematical functions
 
 
 class PowFunction(BaseModel):
@@ -44,11 +44,22 @@ class PowFunction(BaseModel):
 
 MathematicalFunction = PowFunction
 
-##### Special functions
-# TODO
+
+# Special functions
 
 
-##### Expressions
+class BetaRandomFunction(BaseModel):
+    func: Literal["BetaRandom"] = "BetaRandom"
+    args: list[Expression]
+
+    def to_mod(self) -> str:
+        return f"""BetaRandom({", ".join(arg.to_mod() for arg in self.args)})"""
+
+
+SpecialFunction = BetaRandomFunction
+
+
+# Expressions
 
 
 class ParenthesizedExpression(BaseModel):
@@ -96,6 +107,7 @@ class TernaryExpression(BaseModel):
 Expression = (
     SignedExpression
     | MathematicalFunction
+    | SpecialFunction
     | MathematicalExpression
     | TernaryExpression
     | Variable
@@ -103,7 +115,7 @@ Expression = (
     | ParenthesizedExpression
 )
 
-##### Sections
+# Sections
 
 
 class Statement(BaseModel):
@@ -119,7 +131,7 @@ class StatesSection(BaseModel):
     declarations: list[Variable]
 
     def to_mod(self) -> str:
-        return f"""States = {{\n{"\n".join(f"\t{declaration.to_mod()}," for declaration in self.declarations)}\n}};"""
+        return f"""States = {{\n{",\n".join(f"    {declaration.to_mod()}" for declaration in self.declarations)}\n}};"""
 
 
 class InputsSection(BaseModel):
@@ -127,7 +139,7 @@ class InputsSection(BaseModel):
     declarations: list[Variable]
 
     def to_mod(self) -> str:
-        return f"""Inputs = {{\n{"\n".join(f"\t{declaration.to_mod()}," for declaration in self.declarations)}\n}};"""
+        return f"""Inputs = {{\n{",\n".join(f"    {declaration.to_mod()}" for declaration in self.declarations)}\n}};"""
 
 
 class OutputsSection(BaseModel):
@@ -135,7 +147,7 @@ class OutputsSection(BaseModel):
     declarations: list[Variable]
 
     def to_mod(self) -> str:
-        return f"""Outputs = {{\n{"\n".join(f"\t{declaration.to_mod()}," for declaration in self.declarations)}\n}};"""
+        return f"""Outputs = {{\n{",\n".join(f"    {declaration.to_mod()}" for declaration in self.declarations)}\n}};"""
 
 
 class InitializeSection(BaseModel):
@@ -143,7 +155,7 @@ class InitializeSection(BaseModel):
     statements: list[Statement]
 
     def to_mod(self) -> str:
-        return f"""Initialize {{\n{"\n".join(f"\t{statement.to_mod()}" for statement in self.statements)}\n}}"""
+        return f"""Initialize {{\n{"\n".join(f"    {statement.to_mod()}" for statement in self.statements)}\n}}"""
 
 
 class DynamicsSection(BaseModel):
@@ -151,7 +163,7 @@ class DynamicsSection(BaseModel):
     statements: list[Statement]
 
     def to_mod(self) -> str:
-        return f"""Dynamics {{\n{"\n".join(f"\t{statement.to_mod()}" for statement in self.statements)}\n}}"""
+        return f"""Dynamics {{\n{"\n".join(f"    {statement.to_mod()}" for statement in self.statements)}\n}}"""
 
 
 class JacobianSection(BaseModel):
@@ -159,7 +171,7 @@ class JacobianSection(BaseModel):
     statements: list[Statement]
 
     def to_mod(self) -> str:
-        return f"""Jacobian {{\n{"\n".join(f"\t{statement.to_mod()}" for statement in self.statements)}\n}}"""
+        return f"""Jacobian {{\n{"\n".join(f"    {statement.to_mod()}" for statement in self.statements)}\n}}"""
 
 
 class CalcOutputsSection(BaseModel):
@@ -167,7 +179,7 @@ class CalcOutputsSection(BaseModel):
     statements: list[Statement]
 
     def to_mod(self) -> str:
-        return f"""CalcOutputs {{\n{"\n".join(f"\t{statement.to_mod()}" for statement in self.statements)}\n}}"""
+        return f"""CalcOutputs {{\n{"\n".join(f"    {statement.to_mod()}" for statement in self.statements)}\n}}"""
 
 
 Section = Annotated[

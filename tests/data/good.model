@@ -1,0 +1,25 @@
+States = {
+    x,
+    y
+};
+Inputs = {
+    a,
+    b
+};
+Outputs = {
+    result
+};
+Initialize {
+    x = 1.0;
+    y = pow(a, 2) + b * (c - d) / e;
+}
+Dynamics {
+    z = x + y * dt(a);
+}
+Jacobian {
+    j = (x * y) - pow(z, 3);
+}
+CalcOutputs {
+    result = x < y ? a : b;
+}
+End.
