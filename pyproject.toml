@@ -26,8 +26,7 @@ dev = [
   "pytest~=8.3.4",
   "ruff~=0.11.2",
   "poethepoet~=0.33.1",
-  "nbformat~=5.10.4",
-  "nbconvert~=7.16.6",
+  "jupyterlab",
 ]
 
 [project.urls]
