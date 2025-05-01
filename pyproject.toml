@@ -18,6 +18,9 @@ dependencies = [
   "ply",
   "pydantic",
   "matplotlib",
+  "pytensor",
+  "diffrax",
+  "jax",
 ]
 
 [project.optional-dependencies]

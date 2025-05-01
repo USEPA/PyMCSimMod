@@ -1,7 +1,18 @@
-import time
-from random import random
+from pathlib import Path
 
-import typer
+import diffrax
+import jax
+import jax.numpy as jnp
+import matplotlib.pyplot as plt
+import numpy as np
+import pytensor
+import pytensor.tensor as pt
+from pytensor.graph import Apply, Op
+from pytensor.link.jax.dispatch import jax_funcify
+from rich import print
+
+import pymcsimmod.model as model
+from pymcsimmod.parser import ModelParser
 
 
 def bottles(num: int, beverage: str):
@@ -10,7 +21,7 @@ def bottles(num: int, beverage: str):
             f"{i} bottles of {beverage} on the wall, {i} bottles of {beverage}, take one down...",
             fg="green",
         )
-        time.sleep(random())  # noqa: S311
+        time.sleep(random())
     typer.secho(f"No more bottles of {beverage} on the wall!", fg="green")
 
 
