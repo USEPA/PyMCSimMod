@@ -43,7 +43,7 @@ requires = ["flit_core >=3.12,<4"]
 build-backend = "flit_core.buildapi"
 
 [tool.ruff]
-extend-exclude = ["src/pymcsimmod/parsetab.py"]
+extend-exclude = ["src/pymcsimmod/parsetab.py", "*.ipynb"]
 line-length = 100
 target-version = "py313"
 
