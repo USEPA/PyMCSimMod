@@ -17,6 +17,7 @@ dependencies = [
   "typer",
   "ply",
   "pydantic",
+  "matplotlib",
 ]
 
 [project.optional-dependencies]
