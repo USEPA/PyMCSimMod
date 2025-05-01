@@ -17,6 +17,7 @@ dependencies = [
   "typer",
   "ply",
   "pydantic",
+  "matplotlib",
 ]
 
 [project.optional-dependencies]
@@ -26,6 +27,7 @@ dev = [
   "pytest~=8.3.4",
   "ruff~=0.11.2",
   "poethepoet~=0.33.1",
+  "jupyterlab",
 ]
 
 [project.urls]
