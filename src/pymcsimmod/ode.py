@@ -53,7 +53,7 @@ class ODE_Model(ABC):
         # Once model is loaded, initialize the model parameters and intitial conditions 
         self._init_parameters()
         self.dep_var_names = list(self.Y0.keys())
-        self._dep_vars = collections.namedtuple('dep_vars', self.dep_var_names)
+        #self._dep_vars = collections.namedtuple('dep_vars', self.dep_var_names)
 
         
 
@@ -94,39 +94,37 @@ class ODE_Model(ABC):
             else:
                 raise KeyError(f"Initial condiditon for state '{key}' does not exist in the model tree.")
 
-    def model(self, t, y) -> ODEVars:
+    def model(self, t, y):
         """Build a generic tuple of dydt from the model tree. 
         
         """
-        yn = self._dep_vars(*y.tolist())
-        self._dydt = ODEVars(self.dep_var_names) # initialize the differentials
-        # Assume self.model_tree.dynamics is a dict: {var_name: expr}
+        dydt = []
+        # y is a vector (jnp.ndarray or np.ndarray)
         for state in self.dep_var_names:
             expr = self.model_tree.dynamics[state]
-            val = self.evaluate_expression(expr, yn)
-            setattr(self._dydt, state, val)
-
+            val = self.evaluate_expression(expr, y)
+            dydt.append(val)
         if self.use_jax:
-            return self._dydt._tojax()
+            return jnp.array(dydt)
         else:
-            return self._dydt._tonumpy()
+            return np.array(dydt)
     
-    def evaluate_expression(self, expr, yn=None) -> float:
-        """Evaluate a mathematical expression using the current parameters and initial conditions."""
+    def evaluate_expression(self, expr, y=None) -> float:
+        """Evaluate a mathematical expression using the current parameters and state vector y."""
         if isinstance(expr, Identifier):
             name = expr.name
             if name in self.parameters:
                 return self.parameters[name]
             elif name in self.Y0:
-                # y_namedtuple is a namedtuple with fields matching dep_var_names
-                return getattr(yn, name)
+                idx = self.dep_var_names.index(name)
+                return y[idx]
             else:
                 raise KeyError(f"Unknown identifier '{name}' in expression.")
         elif isinstance(expr, Number):
             return expr.value
         elif isinstance(expr, MathematicalExpression):
-            lhs = self.evaluate_expression(expr.lhs, yn)
-            rhs = self.evaluate_expression(expr.rhs, yn)
+            lhs = self.evaluate_expression(expr.lhs, y)
+            rhs = self.evaluate_expression(expr.rhs, y)
             if expr.operator == '+':
                 return lhs + rhs
             elif expr.operator == '-':
@@ -152,16 +150,19 @@ class JAX_Model(ODE_Model):
     def run_model(self, times: Sequence) -> Computed_Model:
         """Use the tuple of dydt to build the module-specific model call
         """
-        ode_term = self.model
+        #times = jnp.array(times)
+        ode_term = diffrax.ODETerm(self.model.__func__)
 
         t0 = times[0]
         t_end = times[-1]
-        
-        solver = diffrax.Dopri5()
 
         y_init = jnp.array([self.Y0[state] for state in self.dep_var_names])
+        print(y_init)
         #saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t_end, 500))
-        saveat = diffrax.SaveAt(ts=jnp.array(times))
+        
+        solver = diffrax.Dopri5()
+        saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t_end, 500))
+
         solution = diffrax.diffeqsolve(
             ode_term,
             solver,
