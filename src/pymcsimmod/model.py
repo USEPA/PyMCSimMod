@@ -12,6 +12,8 @@ class Identifier(BaseModel):
 
     def to_mod(self) -> str:
         return self.name
+    def eval(self) -> str:
+        return self.name
 
 
 class DtVariable(BaseModel):
@@ -29,6 +31,9 @@ class Number(BaseModel):
 
     def to_mod(self) -> str:
         return str(self.value)
+    def eval(self):
+        return self.value
+
 
 
 # Mathematical functions
@@ -77,6 +82,19 @@ class MathematicalExpression(BaseModel):
     def to_mod(self) -> str:
         return f"{self.lhs.to_mod()} {self.operator} {self.rhs.to_mod()}"
 
+    def eval(self, vars: dict[float | int]):
+        lhs_value = self.lhs.eval(vars)
+        rhs_value = self.rhs.eval(vars)
+        if self.operator == '+':
+            return lhs_value + rhs_value
+        elif self.operator == '-':
+            return lhs_value - rhs_value
+        elif self.operator == '*':
+            return lhs_value * rhs_value
+        elif self.operator == '/':
+            return lhs_value / rhs_value
+        else:
+            raise ValueError(f"Unsupported operator: {self.operator}")
 
 class SignedExpression(BaseModel):
     sign: str
@@ -124,6 +142,16 @@ class Statement(BaseModel):
 
     def to_mod(self) -> str:
         return f"{self.lhs.to_mod()} = {self.rhs.to_mod()};"
+    def to_dict(self) -> dict[str, int | float]:
+        return {self.lhs.eval(): self.rhs.eval()}
+    
+    @property
+    def is_constant(self) -> bool:
+        """
+        Check if the statement is a constant assignment.
+        A statement is considered a constant assignment if the right-hand side is a number.
+        """
+        return isinstance(self.rhs, Number) # TODO: Or is signed expression(Number)
 
 
 class StatesSection(BaseModel):
@@ -199,3 +227,40 @@ class Model(BaseModel):
 
     def to_mod(self) -> str:
         return f"""{"\n".join(section.to_mod() for section in self.sections)}\nEnd."""
+
+    @property
+    def parameters(self) -> dict[str, float | int]:
+        """
+        Extract parameters from the model.
+        Returns a dictionary where keys are parameter names and values are their numeric values.
+        """
+        params = {}
+        for section in self.sections:
+            if isinstance(section, Statement):
+                params.update(section.to_dict())
+        return params
+    @property
+    def Y0(self) -> dict[str, float | int]:
+        """
+        Extract initial conditions from the model.
+        Returns a dictionary where keys are variable names and values are their initial values.
+        """
+        Y0 = {}
+        for section in self.sections:
+            if isinstance(section, InitializeSection):
+                for statement in section.statements:
+                    Y0.update(statement.to_dict())
+        return Y0
+    @property
+    def dynamics(self) -> dict[str | int]:
+        """
+        Extract dynamics from the model.
+        Returns a dictionary where keys are variable names and values are their dynamics.
+        """
+        dynamics = {}
+        for section in self.sections:
+            if isinstance(section, DynamicsSection):
+                for statement in section.statements:
+                    variable = statement.lhs.identifier.name
+                    dynamics[variable] = statement.rhs
+        return dynamics
