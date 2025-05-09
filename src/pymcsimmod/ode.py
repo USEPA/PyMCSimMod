@@ -34,8 +34,8 @@ class ODEVars:
 
 class ODE_Model(ABC):
     def __init__(self):
-        self.calc_outputs = [] # calculated outputs from CalcOutputs Section
-        
+        #self.calc_outputs = [] # calculated outputs from CalcOutputs Section
+        pass
     def from_model(self, path: str | None = None, model_str: str | None = None) -> None:
         """Load a model from a file path. This is a placeholder for the actual implementation."""
         parser = ModelParser()
@@ -52,7 +52,11 @@ class ODE_Model(ABC):
 
         # Once model is loaded, initialize the model parameters and intitial conditions 
         self._init_parameters()
-        self.dep_var_names = list(self.Y0.keys())
+
+        if self.use_jax:
+            self.dep_var_names = list(self.Y0.keys())
+        else:
+            self.dep_var_names = jnp.array(self.Y0.keys())
         #self._dep_vars = collections.namedtuple('dep_vars', self.dep_var_names)
 
         
