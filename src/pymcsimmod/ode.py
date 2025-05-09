@@ -53,10 +53,11 @@ class ODE_Model(ABC):
         # Once model is loaded, initialize the model parameters and intitial conditions 
         self._init_parameters()
 
-        if self.use_jax:
-            self.dep_var_names = list(self.Y0.keys())
-        else:
-            self.dep_var_names = jnp.array(self.Y0.keys())
+        #if self.use_jax:
+        self.dep_var_names = list(self.Y0.keys())
+        self.dep_var_indices = {name: i for i, name in enumerate(self.dep_var_names)}
+        #else:
+        #    self.dep_var_names = jnp.array(self.Y0.keys())
         #self._dep_vars = collections.namedtuple('dep_vars', self.dep_var_names)
 
         
@@ -97,30 +98,30 @@ class ODE_Model(ABC):
                 self.Y0[key] = value
             else:
                 raise KeyError(f"Initial condiditon for state '{key}' does not exist in the model tree.")
-
+    @abstractmethod
     def model(self, t, y):
-        """Build a generic tuple of dydt from the model tree. 
-        
-        """
-        dydt = []
-        # y is a vector (jnp.ndarray or np.ndarray)
-        for state in self.dep_var_names:
-            expr = self.model_tree.dynamics[state]
-            val = self.evaluate_expression(expr, y)
-            dydt.append(val)
-        if self.use_jax:
-            return jnp.array(dydt)
-        else:
-            return np.array(dydt)
+        raise NotImplementedError("This method should be implemented in a subclass.")
     
-    def evaluate_expression(self, expr, y=None) -> float:
-        """Evaluate a mathematical expression using the current parameters and state vector y."""
+    @abstractmethod
+    def evaluate_expression(self, expr, y):
+        raise NotImplementedError("This method should be implemented in a subclass.")
+
+    @abstractmethod
+    def run_model(self, times: Sequence) -> Computed_Model:
+        raise NotImplementedError("This method should be implemented in a subclass.")
+
+class JAX_Model(ODE_Model):
+    def __init__(self):
+        super().__init__()
+        self.use_jax = True
+
+    def evaluate_expression(self, expr, y):
         if isinstance(expr, Identifier):
             name = expr.name
             if name in self.parameters:
                 return self.parameters[name]
             elif name in self.Y0:
-                idx = self.dep_var_names.index(name)
+                idx = self.dep_var_indices[name]
                 return y[idx]
             else:
                 raise KeyError(f"Unknown identifier '{name}' in expression.")
@@ -142,14 +143,14 @@ class ODE_Model(ABC):
         else:
             raise TypeError(f"Unsupported expression type: {type(expr)}")
 
-    @abstractmethod
-    def run_model(self, times: Sequence) -> Computed_Model:
-        raise NotImplementedError("This method should be implemented in a subclass.")
-
-class JAX_Model(ODE_Model):
-    def __init__(self):
-        super().__init__()
-        self.use_jax = True
+    def model(self, t, y, args=None):
+        # y is a jnp.ndarray
+        # Use a list comprehension for JAX compatibility
+        dydt = jnp.array([
+            self.evaluate_expression(self.model_tree.dynamics[state], y)
+            for state in self.dep_var_names
+        ])
+        return dydt
 
     def run_model(self, times: Sequence) -> Computed_Model:
         """Use the tuple of dydt to build the module-specific model call
@@ -182,6 +183,47 @@ class ODEint_Model(ODE_Model):
     def __init__(self):
         self.use_jax = False
 
+    def evaluate_expression(self, expr, y):
+        if isinstance(expr, Identifier):
+            name = expr.name
+            if name in self.parameters:
+                return self.parameters[name]
+            elif name in self.Y0:
+                idx = self.dep_var_indices[name]
+                return y[idx]
+            else:
+                raise KeyError(f"Unknown identifier '{name}' in expression.")
+        elif isinstance(expr, Number):
+            return expr.value
+        elif isinstance(expr, MathematicalExpression):
+            lhs = self.evaluate_expression(expr.lhs, y)
+            rhs = self.evaluate_expression(expr.rhs, y)
+            if expr.operator == '+':
+                return lhs + rhs
+            elif expr.operator == '-':
+                return lhs - rhs
+            elif expr.operator == '*':
+                return lhs * rhs
+            elif expr.operator == '/':
+                return lhs / rhs
+            else:
+                raise ValueError(f"Unknown operator '{expr.operator}' in expression.")
+        else:
+            raise TypeError(f"Unsupported expression type: {type(expr)}")
+
+    def model(self, t, y):
+        """Build a generic tuple of dydt from the model tree. 
+        
+        """
+        dydt = []
+        # y is a vector (jnp.ndarray or np.ndarray)
+        for state in self.dep_var_names:
+            expr = self.model_tree.dynamics[state]
+            val = self.evaluate_expression(expr, y)
+            dydt.append(val)
+        
+        return np.array(dydt)
+        
     def run_model(self, times: Sequence) -> Computed_Model:
         """Use the tuple of dydt to build the module-specific model call
         """
