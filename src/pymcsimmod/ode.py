@@ -110,7 +110,7 @@ class ODE_Model(ABC):
     def run_model(self, times: Sequence) -> Computed_Model:
         raise NotImplementedError("This method should be implemented in a subclass.")
 
-class JAX_Model(ODE_Model):
+class Jax_Model(ODE_Model):
     def __init__(self):
         super().__init__()
         self.use_jax = True
@@ -179,7 +179,7 @@ class JAX_Model(ODE_Model):
         )
         return solution
 
-class ODEint_Model(ODE_Model):
+class Scipy_Model(ODE_Model):
     def __init__(self):
         self.use_jax = False
 
@@ -228,13 +228,14 @@ class ODEint_Model(ODE_Model):
         """Use the tuple of dydt to build the module-specific model call
         """
         times = np.array(times)
-
         y_init = np.array([self.Y0[state] for state in self.dep_var_names])
-        solution = sci.odeint(
-            self.model,
-            y_init,  # Initial conditions
-            times,  # Time points
-            tfirst=True,
+        t_span = np.array([times[0], times[-1]])
+        # Use solve_ivp instead of odeint
+        sol = sci.solve_ivp(
+            fun=self.model,
+            t_span=t_span,
+            y0=y_init,
+            t_eval=times,
         )
-        return solution
+        return sol
 
