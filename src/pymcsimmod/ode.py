@@ -79,15 +79,18 @@ class OdeModel(ABC):
             self.Y0[key] = value
 
     @abstractmethod
-    def model(self, t, y, args):
+    def model(self, t: float, y, args) -> object:
+        """Abstract ODE right-hand side function for subclass implementation."""
         raise NotImplementedError("This method should be implemented in a subclass.")
 
     @abstractmethod
-    def evaluate_expression(self, expr, y):
+    def evaluate_expression(self, expr, y) -> object:
+        """Abstract expression evaluator for subclass implementation."""
         raise NotImplementedError("This method should be implemented in a subclass.")
 
     @abstractmethod
     def run_model(self, times: Sequence) -> Computed_Model:
+        """Abstract ODE solver runner for subclass implementation."""
         raise NotImplementedError("This method should be implemented in a subclass.")
 
 
@@ -165,7 +168,23 @@ class JaxModel(OdeModel):
         else:
             raise TypeError(f"Unsupported expression type: {type(expr)}")
 
-    def model(self, t, y, args):
+    def model(self, t: float, y: jnp.ndarray, args: tuple[jnp.ndarray, ...]) -> jnp.ndarray:
+        """
+        ODE right-hand side function for use with JAX-based solvers (e.g., diffrax).
+
+        This function computes the time derivatives (dydt) for the system of ODEs defined in the model.
+        It builds a flat JAX array of all variables (state, parameters, calculated variables), then evaluates
+        the ODE right-hand sides using the model's expression tree. This function is passed as the vector field
+        to diffrax's ODETerm.
+
+        Args:
+            t: Current time (ignored for autonomous systems, but required by diffrax signature).
+            y: Current state vector (JAX array).
+            args: Tuple containing parameter values as a JAX array.
+
+        Returns:
+            dydt: JAX array of time derivatives for each state variable.
+        """
         # args: tuple (param_vals,)
         param_vals = args[0]
         # y: state variables (jnp array)
@@ -204,8 +223,23 @@ class ScipyModel(OdeModel):
     def __init__(self, model: str | Path):
         super().__init__(model=model)
 
-    def model(self, t, y, args=None):
-        """Build a tuple of dydt from the model tree, using dynamic_calcs for intermediate variables and generic expression evaluation."""
+    def model(self, t: float, y: np.ndarray, args: None = None) -> np.ndarray:
+        """
+        ODE right-hand side function for use with scipy.integrate.solve_ivp.
+
+        This function computes the time derivatives (dydt) for the system of ODEs defined in the model.
+        It builds a context from the current state vector `y`, model parameters, and any calculated variables
+        (from the Dynamics section), then evaluates the ODE right-hand sides using the model's expression tree.
+        This function is passed as the `fun` argument to solve_ivp.
+
+        Args:
+            t: Current time (ignored for autonomous systems, but required by solve_ivp signature).
+            y: Current state vector (NumPy array).
+            args: Optional extra arguments (not used, included for compatibility with JAX interface).
+
+        Returns:
+            dydt: Array of time derivatives for each state variable.
+        """
         # Build context: state variables, parameters, and calculated variables
         context = {name: y[i] for i, name in enumerate(self.dep_var_names)}
         context.update(self.parameters)
