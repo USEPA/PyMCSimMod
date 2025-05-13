@@ -18,11 +18,6 @@ class NumericArrayCheck:
             if not np.issubdtype(array.dtype, np.number):
                 raise TypeError(f"Expected a numeric array, got array with dtype {array.dtype}")
 
-            if not array.ndim == 1:
-                raise TypeError(
-                    f"Expected a 1 dimensional array, got {array.ndim} dimensional array"
-                )
-
             return array
 
         return core_schema.no_info_plain_validator_function(validate)
