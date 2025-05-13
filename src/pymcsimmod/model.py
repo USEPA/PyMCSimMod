@@ -83,20 +83,6 @@ class MathematicalExpression(BaseModel):
     def to_mod(self) -> str:
         return f"{self.lhs.to_mod()} {self.operator} {self.rhs.to_mod()}"
 
-    def eval(self, vars: dict[float | int]):
-        lhs_value = self.lhs.eval(vars)
-        rhs_value = self.rhs.eval(vars)
-        if self.operator == "+":
-            return lhs_value + rhs_value
-        elif self.operator == "-":
-            return lhs_value - rhs_value
-        elif self.operator == "*":
-            return lhs_value * rhs_value
-        elif self.operator == "/":
-            return lhs_value / rhs_value
-        else:
-            raise ValueError(f"Unsupported operator: {self.operator}")
-
 
 class SignedExpression(BaseModel):
     sign: str
@@ -146,7 +132,19 @@ class Statement(BaseModel):
         return f"{self.lhs.to_mod()} = {self.rhs.to_mod()};"
 
     def to_dict(self) -> dict[str, int | float]:
-        return {self.lhs.eval(): self.rhs.eval()}
+        # Evaluate the right-hand side, handling SignedExpression recursively
+        def eval_rhs(expr):
+            if hasattr(expr, "eval"):
+                return expr.eval()
+            elif hasattr(expr, "sign") and hasattr(expr, "expression"):
+                val = eval_rhs(expr.expression)
+                return val if expr.sign == "+" else -val
+            elif hasattr(expr, "value"):
+                return expr.value
+            else:
+                raise TypeError(f"Unsupported expression type in Statement.to_dict: {type(expr)}")
+
+        return {self.lhs.eval(): eval_rhs(self.rhs)}
 
     @property
     def is_constant(self) -> bool:
