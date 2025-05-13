@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
+from pathlib import Path
 
 import diffrax
 import jax.numpy as jnp
@@ -22,10 +23,9 @@ class Computed_Model(BaseModel):
 
 
 class ODE_Model(ABC):
-    def __init__(self):
+    def __init__(self, path: str | Path | None = None, model_str: str | None = None):
         self.calc_outputs = []  # calculated outputs from CalcOutputs Section
-
-    def from_model(self, path: str | None = None, model_str: str | None = None) -> None:
+        
         """Load a model from a file path. This is a placeholder for the actual implementation."""
         parser = ModelParser()
         if path is None and model_str is None:
@@ -98,15 +98,12 @@ class ODE_Model(ABC):
 
 
 class Jax_Model(ODE_Model):
-    def __init__(self):
-        super().__init__()
-        self.use_jax = True
+    def __init__(self, path: str | Path | None = None, model_str: str | None = None):
+        super().__init__(path=path, model_str=model_str)
         # Will be set in from_model
         self.all_var_names = []
         self.all_var_indices = {}
 
-    def from_model(self, path: str | None = None, model_str: str | None = None) -> None:
-        super().from_model(path=path, model_str=model_str)
         self.state_names = list(self.Y0.keys())
         self.param_names = list(self.parameters.keys())
         self.calc_names = list(self.model_tree.dynamic_calcs.keys())
@@ -213,8 +210,8 @@ class Jax_Model(ODE_Model):
 
 
 class Scipy_Model(ODE_Model):
-    def __init__(self):
-        self.use_jax = False
+    def __init__(self, path: str | Path | None = None, model_str: str | None = None):
+        super().__init__(path=path, model_str=model_str)
 
     def model(self, t, y, args=None):
         """Build a tuple of dydt from the model tree, using dynamic_calcs for intermediate variables and generic expression evaluation."""
