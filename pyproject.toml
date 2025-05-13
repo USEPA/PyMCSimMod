@@ -21,6 +21,7 @@ dependencies = [
   "pytensor",
   "diffrax",
   "jax",
+  "pandas",
 ]
 
 [project.optional-dependencies]

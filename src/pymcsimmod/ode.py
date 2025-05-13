@@ -33,6 +33,8 @@ class ComputedModel(BaseModel):
         var_names: List of state variable names (order matches columns of states).
         backend: String indicating the backend used ('jax' or 'scipy').
         raw: The raw solution object from the backend solver (diffrax.Solution or OdeResult).
+        calc_dyn: Array of calculated dynamic variable values at each time point (shape: [n_times, n_calcs]).
+        calc_names: List of calculated dynamic variable names (order matches columns of calc_dyn).
     """
 
     times: NumericArray
@@ -40,52 +42,98 @@ class ComputedModel(BaseModel):
     var_names: list[str]
     backend: str  # 'jax' or 'scipy'
     raw: object  # The raw solution object (diffrax.Solution or OdeResult)
+    calc_dyn: NumericArray = None  # shape (n_times, n_calcs)
+    calc_names: list[str] = None
 
     @classmethod
-    def from_scipy(cls, sol, var_names: list[str]):
+    def from_scipy(
+        cls, sol, var_names: list[str], model_tree=None, parameters=None, evaluate_expression=None
+    ):
         """
-        Construct a ComputedModel from a scipy.integrate.OdeResult.
-
-        Args:
-            sol: OdeResult from scipy.integrate.solve_ivp.
-            var_names: List of variable names (state variable order).
-
-        Returns:
-            ComputedModel instance with unified interface.
+        Construct a ComputedModel from a scipy.integrate.OdeResult, optionally computing calculated dynamics.
         """
+        calc_dyn = None
+        calc_names = None
+        if (
+            model_tree is not None
+            and parameters is not None
+            and evaluate_expression is not None
+            and hasattr(model_tree, "dynamic_calcs")
+        ):
+            calc_names = list(model_tree.dynamic_calcs.keys())
+            calc_dyn = np.zeros((sol.t.shape[0], len(calc_names)))
+            for i, t in enumerate(sol.t):
+                context = {name: sol.y[:, i][j] for j, name in enumerate(var_names)}
+                context.update(parameters)
+                for k, cname in enumerate(calc_names):
+                    expr = model_tree.dynamic_calcs[cname]
+                    calc_dyn[i, k] = evaluate_expression(expr, context)
         return cls(
             times=sol.t,
             states=sol.y.T,  # shape (n_times, n_states)
             var_names=var_names,
             backend="scipy",
             raw=sol,
+            calc_dyn=calc_dyn,
+            calc_names=calc_names,
         )
 
     @classmethod
-    def from_jax(cls, sol, var_names: list[str]):
+    def from_jax(
+        cls, sol, var_names: list[str], model_tree=None, parameters=None, evaluate_expression=None
+    ):
         """
-        Construct a ComputedModel from a diffrax solution.
-
-        Args:
-            sol: diffrax.Solution object.
-            var_names: List of variable names (state variable order).
-
-        Returns:
-            ComputedModel instance with unified interface.
+        Construct a ComputedModel from a diffrax solution, optionally computing calculated dynamics.
         """
+        calc_dyn = None
+        calc_names = None
+        if (
+            model_tree is not None
+            and parameters is not None
+            and evaluate_expression is not None
+            and hasattr(model_tree, "dynamic_calcs")
+        ):
+            calc_names = list(model_tree.dynamic_calcs.keys())
+            calc_dyn = np.zeros((sol.ts.shape[0], len(calc_names)))
+            for i, t in enumerate(sol.ts):
+                # Build all_vars as in JaxModel
+                state_vals = sol.ys[i]
+                param_vals = np.array([parameters[name] for name in parameters])
+                all_vars = np.concatenate([state_vals, param_vals])
+                for k, cname in enumerate(calc_names):
+                    expr = model_tree.dynamic_calcs[cname]
+                    calc_dyn[i, k] = float(evaluate_expression(expr, all_vars))
         return cls(
             times=np.asarray(sol.ts),
             states=np.asarray(sol.ys),
             var_names=var_names,
             backend="jax",
             raw=sol,
+            calc_dyn=calc_dyn,
+            calc_names=calc_names,
         )
 
-    def plot_results(self, ax=None, show=True, legend=True, **kwargs):
+    @property
+    def dataframe(self):
         """
-        Plot the ODE solution results for all state variables.
+        Return a pandas DataFrame with columns for time, state variables, and calculated dynamic variables.
+        """
+        import pandas as pd
+
+        data = {"time": self.times}
+        for i, name in enumerate(self.var_names):
+            data[name] = self.states[:, i]
+        if self.calc_dyn is not None and self.calc_names is not None:
+            for i, name in enumerate(self.calc_names):
+                data[name] = self.calc_dyn[:, i]
+        return pd.DataFrame(data)
+
+    def plot_results(self, variables=None, ax=None, show=True, legend=True, **kwargs):
+        """
+        Plot the ODE solution results for selected variables (states or calculated dynamics).
 
         Args:
+            variables: str or list of str, variable names to plot (state or calc_dyn). If None, plot all states.
             ax: Optional matplotlib axis to plot on. If None, a new figure/axis is created.
             show: Whether to call plt.show() after plotting (default: True).
             legend: Whether to display the legend (default: True).
@@ -97,10 +145,21 @@ class ComputedModel(BaseModel):
 
         if ax is None:
             fig, ax = plt.subplots()
-        for i, name in enumerate(self.var_names):
-            ax.plot(self.times, self.states[:, i], label=name, **kwargs)
+        if variables is None:
+            variables = self.var_names
+        if isinstance(variables, str):
+            variables = [variables]
+        for var in variables:
+            if var in self.var_names:
+                idx = self.var_names.index(var)
+                ax.plot(self.times, self.states[:, idx], label=var, **kwargs)
+            elif self.calc_names is not None and var in self.calc_names:
+                idx = self.calc_names.index(var)
+                ax.plot(self.times, self.calc_dyn[:, idx], label=var, **kwargs)
+            else:
+                raise KeyError(f"Variable '{var}' not found in states or calculated dynamics.")
         ax.set_xlabel("Time")
-        ax.set_ylabel("State")
+        ax.set_ylabel("Value")
         if legend:
             ax.legend()
         if show:
@@ -125,6 +184,29 @@ class ComputedModel(BaseModel):
         elif isinstance(key, str):
             idx = self.var_names.index(key)
             return self.states[:, idx]
+        else:
+            raise KeyError(f"Invalid key: {key}")
+
+    def get_calc(self, key):
+        """
+        Access calculated dynamic variable arrays by name or index.
+
+        Args:
+            key: int (column index) or str (variable name).
+
+        Returns:
+            Array of values for the selected calculated variable across all time points.
+
+        Raises:
+            KeyError: If the key is not a valid index or variable name.
+        """
+        if self.calc_dyn is None or self.calc_names is None:
+            raise AttributeError("No calculated dynamics stored in this ComputedModel.")
+        if isinstance(key, int):
+            return self.calc_dyn[:, key]
+        elif isinstance(key, str):
+            idx = self.calc_names.index(key)
+            return self.calc_dyn[:, idx]
         else:
             raise KeyError(f"Invalid key: {key}")
 
@@ -366,29 +448,25 @@ class JaxModel(OdeModel):
 
     def run_model(self, times: Sequence) -> ComputedModel:
         """
-        Solve the ODE system using diffrax (JAX backend) and return a ComputedModel.
-
-        Args:
-            times: Sequence of time points at which to solve the ODE system.
-
-        Returns:
-            ComputedModel instance containing the solution.
+        Solve the ODE system using diffrax (JAX backend) and return a ComputedModel, including calculated dynamics.
         """
         ode_term = diffrax.ODETerm(self.model)
         t0 = times[0]
         t_end = times[-1]
         y_init = jnp.array([self.Y0[state] for state in self.dep_var_names])
-
-        # Store parameter values as a jnp array for passing to ODE after all updates are done
         param_vals = jnp.array([self.parameters[name] for name in self.param_names])
-
         solver = diffrax.Dopri5()
         saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t_end, len(times)))
-        # Pass param_vals as args
         solution = diffrax.diffeqsolve(
             ode_term, solver, t0=t0, t1=t_end, dt0=0.1, y0=y_init, saveat=saveat, args=(param_vals,)
         )
-        return ComputedModel.from_jax(solution, self.dep_var_names)
+        return ComputedModel.from_jax(
+            solution,
+            self.dep_var_names,
+            model_tree=self.model_tree,
+            parameters=self.parameters,
+            evaluate_expression=self.evaluate_expression,
+        )
 
 
 class ScipyModel(OdeModel):
@@ -512,22 +590,21 @@ class ScipyModel(OdeModel):
 
     def run_model(self, times: Sequence) -> ComputedModel:
         """
-        Solve the ODE system using scipy.integrate.solve_ivp and return a ComputedModel.
-
-        Args:
-            times: Sequence of time points at which to solve the ODE system.
-
-        Returns:
-            ComputedModel instance containing the solution.
+        Solve the ODE system using scipy.integrate.solve_ivp and return a ComputedModel, including calculated dynamics.
         """
         times = np.array(times)
         y_init = np.array([self.Y0[state] for state in self.dep_var_names])
         t_span = np.array([times[0], times[-1]])
-        # Use solve_ivp instead of odeint
         sol = sci.solve_ivp(
             fun=self.model,
             t_span=t_span,
             y0=y_init,
             t_eval=times,
         )
-        return ComputedModel.from_scipy(sol, self.dep_var_names)
+        return ComputedModel.from_scipy(
+            sol,
+            self.dep_var_names,
+            model_tree=self.model_tree,
+            parameters=self.parameters,
+            evaluate_expression=self.evaluate_expression,
+        )
