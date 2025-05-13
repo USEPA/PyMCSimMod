@@ -8,6 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 import scipy.integrate as sci
 from pydantic import BaseModel
+from pymcsimmod.extra_typing import NumericArray
 
 from .model import (
     Identifier,
@@ -19,8 +20,90 @@ from .model import (
 from .parser import ModelParser
 
 
-class Computed_Model(BaseModel):
-    pass
+class ComputedModel(BaseModel):
+    """
+    Adapter class for ODE solution results from either JaxModel (diffrax) or ScipyModel (solve_ivp).
+    Provides a unified interface for accessing time, state, and plotting results.
+    """
+    times: NumericArray
+    states: NumericArray
+    var_names: list[str]
+    backend: str  # 'jax' or 'scipy'
+    raw: object   # The raw solution object (diffrax.Solution or OdeResult)
+
+    @classmethod
+    def from_scipy(cls, sol, var_names: list[str]):
+        """
+        Construct a ComputedModel from a scipy.integrate.OdeResult.
+        Args:
+            sol: OdeResult from scipy.integrate.solve_ivp
+            var_names: List of variable names (state variable order)
+        """
+        return cls(
+            times=sol.t,
+            states=sol.y.T,  # shape (n_times, n_states)
+            var_names=var_names,
+            backend='scipy',
+            raw=sol,
+        )
+
+    @classmethod
+    def from_jax(cls, sol, var_names: list[str]):
+        """
+        Construct a ComputedModel from a diffrax solution.
+        Args:
+            sol: diffrax.Solution
+            var_names: List of variable names (state variable order)
+        """
+        return cls(
+            times=np.asarray(sol.ts),
+            states=np.asarray(sol.ys),
+            var_names=var_names,
+            backend='jax',
+            raw=sol,
+        )
+
+    def plot_results(self, ax=None, show=True, legend=True, **kwargs):
+        """
+        Plot the ODE solution results for all state variables.
+        Args:
+            ax: Optional matplotlib axis to plot on.
+            show: Whether to call plt.show().
+            legend: Whether to show legend.
+            **kwargs: Additional arguments to plt.plot.
+        Returns:
+            The matplotlib axis object.
+        """
+        import matplotlib.pyplot as plt
+        if ax is None:
+            fig, ax = plt.subplots()
+        for i, name in enumerate(self.var_names):
+            ax.plot(self.times, self.states[:, i], label=name, **kwargs)
+        ax.set_xlabel('Time')
+        ax.set_ylabel('State')
+        if legend:
+            ax.legend()
+        if show:
+            plt.show()
+        return ax
+
+    def __getitem__(self, key):
+        """
+        Allow access to state variable arrays by name or index.
+        """
+        if isinstance(key, int):
+            return self.states[:, key]
+        elif isinstance(key, str):
+            idx = self.var_names.index(key)
+            return self.states[:, idx]
+        else:
+            raise KeyError(f"Invalid key: {key}")
+
+    def __repr__(self):
+        return (
+            f"ComputedModel(backend={self.backend!r}, times=shape{self.times.shape}, "
+            f"states=shape{self.states.shape}, var_names={self.var_names})"
+        )
 
 
 class OdeModel(ABC):
@@ -89,7 +172,7 @@ class OdeModel(ABC):
         raise NotImplementedError("This method should be implemented in a subclass.")
 
     @abstractmethod
-    def run_model(self, times: Sequence) -> Computed_Model:
+    def run_model(self, times: Sequence) -> ComputedModel:
         """Abstract ODE solver runner for subclass implementation."""
         raise NotImplementedError("This method should be implemented in a subclass.")
 
@@ -201,7 +284,7 @@ class JaxModel(OdeModel):
         ]
         return jnp.stack(dydt)
 
-    def run_model(self, times: Sequence) -> Computed_Model:
+    def run_model(self, times: Sequence) -> ComputedModel:
         ode_term = diffrax.ODETerm(self.model)
         t0 = times[0]
         t_end = times[-1]
@@ -216,7 +299,7 @@ class JaxModel(OdeModel):
         solution = diffrax.diffeqsolve(
             ode_term, solver, t0=t0, t1=t_end, dt0=0.1, y0=y_init, saveat=saveat, args=(param_vals,)
         )
-        return solution
+        return ComputedModel.from_jax(solution, self.dep_var_names)
 
 
 class ScipyModel(OdeModel):
@@ -325,7 +408,7 @@ class ScipyModel(OdeModel):
         else:
             raise TypeError(f"Unsupported expression type: {type(expr)}")
 
-    def run_model(self, times: Sequence) -> Computed_Model:
+    def run_model(self, times: Sequence) -> ComputedModel:
         """Use the tuple of dydt to build the module-specific model call"""
         times = np.array(times)
         y_init = np.array([self.Y0[state] for state in self.dep_var_names])
@@ -337,4 +420,4 @@ class ScipyModel(OdeModel):
             y0=y_init,
             t_eval=times,
         )
-        return sol
+        return ComputedModel.from_scipy(sol, self.dep_var_names)

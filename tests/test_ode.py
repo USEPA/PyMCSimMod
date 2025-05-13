@@ -37,17 +37,26 @@ class TestScipyModel:
         model = ScipyModel(model=model_str)
         times = np.linspace(0, 5, 10)
         sol = model.run_model(times)
-        assert sol.y.shape[0] == 1
+        # Check ComputedModel interface
+        assert sol.states.shape == (10, 1)
+        assert sol.times.shape == (10,)
+        assert sol.var_names == ['A']
+        # Access by index and name
+        np.testing.assert_allclose(sol[0], sol.states[:, 0])
+        np.testing.assert_allclose(sol['A'], sol.states[:, 0])
+        # Plotting (do not show in CI)
+        ax = sol.plot_results(show=False)
+        assert ax is not None
 
         # Update parameter and check new solution is different
         model.update_constants(k=1.0)
         sol2 = model.run_model(times)
-        assert not np.allclose(sol.y, sol2.y)
+        assert not np.allclose(sol.states, sol2.states)
 
         # Update y0 and check new solution is different
         model.update_Y0(A=1.0)
         sol3 = model.run_model(times)
-        assert not np.allclose(sol2.y, sol3.y)
+        assert not np.allclose(sol2.states, sol3.states)
         assert model.Y0["A"] == 1.0
         assert model.parameters["k"] == 1.0
 
@@ -103,17 +112,26 @@ class TestJaxModel:
         model = JaxModel(model=model_str)
         times = np.linspace(0, 5, 10)
         sol = model.run_model(times)
-        assert sol.ys.shape[1] == 1
+        # Check ComputedModel interface
+        assert sol.states.shape == (10, 1)
+        assert sol.times.shape == (10,)
+        assert sol.var_names == ['A']
+        # Access by index and name
+        np.testing.assert_allclose(sol[0], sol.states[:, 0])
+        np.testing.assert_allclose(sol['A'], sol.states[:, 0])
+        # Plotting (do not show in CI)
+        ax = sol.plot_results(show=False)
+        assert ax is not None
 
         # Update parameter and check new solution is different
         model.update_constants(k=1.0)
         sol2 = model.run_model(times)
-        assert not jnp.allclose(sol.ys, sol2.ys)
+        assert not np.allclose(sol.states, sol2.states)
 
         # Update y0 and check new solution is different
         model.update_Y0(A=1.0)
         sol3 = model.run_model(times)
-        assert not jnp.allclose(sol2.ys, sol3.ys)
+        assert not np.allclose(sol2.states, sol3.states)
         assert model.Y0["A"] == 1.0
         assert model.parameters["k"] == 1.0
 
