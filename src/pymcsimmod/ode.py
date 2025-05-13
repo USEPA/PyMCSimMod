@@ -129,6 +129,7 @@ class JaxModel(OdeModel):
                 "-": operator.sub,
                 "*": operator.mul,
                 "/": operator.truediv,
+                "pow": jnp.power,
             }
             if expr.operator not in expression_map:
                 raise ValueError(f"Unknown operator '{expr.operator}' in expression.")
@@ -222,11 +223,7 @@ class ScipyModel(OdeModel):
     def evaluate_expression(
         self, expr: MathematicalExpression, context: dict[str, float | int]
     ) -> float | int:
-        """
-        Recursively evaluate an expression using the provided context dict.
-        Context should include state variables, parameters, and any calculated variables.
-        This is for evaluating expressions for a Python-specific ODE model.
-        """
+        import operator
         # Identifier
         if isinstance(expr, Identifier):
             name = expr.name
@@ -249,11 +246,19 @@ class ScipyModel(OdeModel):
                 "-": operator.sub,
                 "*": operator.mul,
                 "/": operator.truediv,
+                "pow": pow,
             }
             if expr.operator in expression_map:
                 return expression_map[expr.operator](lhs, rhs)
             else:
                 raise ValueError(f"Unknown operator '{expr.operator}' in expression.")
+        # PowFunction support
+        elif hasattr(expr, "func") and hasattr(expr, "args"):
+            if getattr(expr, "func", None) == "pow":
+                args = [self.evaluate_expression(arg, context) for arg in expr.args]
+                return pow(*args)
+            else:
+                raise ValueError(f"Unknown function: {getattr(expr, 'func', None)}")
         # ParenthesizedExpression
         elif isinstance(expr, ParenthesizedExpression):
             return self.evaluate_expression(expr.expression, context)
@@ -267,7 +272,7 @@ class ScipyModel(OdeModel):
                 "!=": operator.ne,
                 "<": operator.lt,
                 ">": operator.gt,
-                "<=": operator.le,
+                "<=" : operator.le,
                 ">=": operator.ge,
             }
             if cond.operator in condition_map:
@@ -279,13 +284,6 @@ class ScipyModel(OdeModel):
                 if result
                 else self.evaluate_expression(expr.if_false, context)
             )
-        # MathematicalFunction (e.g., pow)
-        elif hasattr(expr, "func") and hasattr(expr, "args"):
-            if expr.func == "pow":
-                args = [self.evaluate_expression(arg, context) for arg in expr.args]
-                return pow(*args)
-            else:
-                raise ValueError(f"Unknown function: {expr.func}")
         # SpecialFunction (e.g., BetaRandom)
         elif hasattr(expr, "func") and hasattr(expr, "args"):
             # For now, just return 0 or raise (implement as needed)

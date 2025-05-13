@@ -17,6 +17,10 @@ def math_expr_nested():
     inner = MathematicalExpression(operator="+", lhs=Number(value=3), rhs=Number(value=4))
     return MathematicalExpression(operator="*", lhs=inner, rhs=Number(value=2))
 
+@pytest.fixture
+def math_expr_pow():
+    # pow(3, 2)
+    return MathematicalExpression(operator="pow", lhs=Number(value=3), rhs=Number(value=2))
 
 class TestScipyModel:
     def test_scipy_model_runs_and_updates(self):
@@ -71,6 +75,18 @@ class TestScipyModel:
         context = {}
         result = model.evaluate_expression(math_expr_nested, context)
         assert result == 14
+    
+    def test_pow_mathematical_expression_eval(self, math_expr_pow):
+        model_str = """
+        States = { X };
+        Initialize { X = 0; }
+        Dynamics { dt(X) = 0; }
+        End.
+        """
+        model = ScipyModel(model=model_str)
+        context = {}
+        result = model.evaluate_expression(math_expr_pow, context)
+        assert result == 9
 
 
 class TestJaxModel:
@@ -125,3 +141,15 @@ class TestJaxModel:
         all_vars = jnp.array([])
         result = model.evaluate_expression(math_expr_nested, all_vars)
         assert result == 14
+    
+    def test_pow_mathematical_expression_eval(self, math_expr_pow):
+        model_str = """
+        States = { X };
+        Initialize { X = 0; }
+        Dynamics { dt(X) = 0; }
+        End.
+        """
+        model = JaxModel(model=model_str)
+        all_vars = jnp.array([])
+        result = model.evaluate_expression(math_expr_pow, all_vars)
+        assert result == 9
