@@ -235,11 +235,13 @@ class Model(BaseModel):
         Extract parameters from the model.
         Returns a dictionary where keys are parameter names and values are their numeric values.
         """
-        params = {}
-        for section in self.sections:
-            if isinstance(section, Statement):
-                params.update(section.to_dict())
-        return params
+        if not hasattr(self, "_params"):
+            params = {}
+            for section in self.sections:
+                if isinstance(section, Statement):
+                    params.update(section.to_dict())
+            self._params = params
+            return self._params
 
     @property
     def Y0(self) -> dict[str, float | int]:
@@ -247,12 +249,14 @@ class Model(BaseModel):
         Extract initial conditions from the model.
         Returns a dictionary where keys are variable names and values are their initial values.
         """
-        Y0 = {}
-        for section in self.sections:
-            if isinstance(section, InitializeSection):
-                for statement in section.statements:
-                    Y0.update(statement.to_dict())
-        return Y0
+        if not hasattr(self, "_Y0"):
+            Y0 = {}
+            for section in self.sections:
+                if isinstance(section, InitializeSection):
+                    for statement in section.statements:
+                        Y0.update(statement.to_dict())
+            self._Y0 = Y0
+        return self._Y0
 
     @property
     def dynamics(self) -> dict[str | int]:
@@ -260,14 +264,16 @@ class Model(BaseModel):
         Extract only the dydt dynamics from the model.
         Returns a dictionary where keys are variable names and values are their dynamics.
         """
-        dynamics = {}
-        for section in self.sections:
-            if isinstance(section, DynamicsSection):
-                for statement in section.statements:
-                    if isinstance(statement.lhs, DtVariable):
-                        variable = statement.lhs.identifier.name
-                        dynamics[variable] = statement.rhs
-        return dynamics
+        if not hasattr(self, "_dynamics"):
+            dynamics = {}
+            for section in self.sections:
+                if isinstance(section, DynamicsSection):
+                    for statement in section.statements:
+                        if isinstance(statement.lhs, DtVariable):
+                            variable = statement.lhs.identifier.name
+                            dynamics[variable] = statement.rhs
+            self._dynamics = dynamics
+        return self._dynamics
 
     @property
     def dynamic_calcs(self) -> dict[str | int]:
@@ -275,11 +281,13 @@ class Model(BaseModel):
         Extract any calculations from the dynamics section from the model.
         Returns a dictionary where keys are variable names and values are their dynamics calculations.
         """
-        dynamics_calcs = {}
-        for section in self.sections:
-            if isinstance(section, DynamicsSection):
-                for statement in section.statements:
-                    if isinstance(statement.lhs, Identifier):
-                        variable = statement.lhs.name
-                        dynamics_calcs[variable] = statement.rhs
-        return dynamics_calcs
+        if not hasattr(self, "_dynamics_calcs"):
+            dynamics_calcs = {}
+            for section in self.sections:
+                if isinstance(section, DynamicsSection):
+                    for statement in section.statements:
+                        if isinstance(statement.lhs, Identifier):
+                            variable = statement.lhs.name
+                            dynamics_calcs[variable] = statement.rhs
+            self._dynamics_calcs = dynamics_calcs
+        return self._dynamics_calcs
