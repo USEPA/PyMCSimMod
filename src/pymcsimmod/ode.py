@@ -23,23 +23,16 @@ class Computed_Model(BaseModel):
 
 
 class OdeModel(ABC):
-    def __init__(self, path: str | Path | None = None, model_str: str | None = None):
-        self.calc_outputs = []  # calculated outputs from CalcOutputs Section
-
+    def __init__(self, model: str | Path):
         """Load a model from a file path. This is a placeholder for the actual implementation."""
+        model_str = model.read_text() if isinstance(model, Path) else model
+        
         parser = ModelParser()
-        if path is None and model_str is None:
-            raise ValueError("Either path to .model or model_str must be provided.")
-
-        if path is not None:
-            with open(path) as file:
-                parsed_model = parser.parse(file.read())
-        elif model_str is not None:
-            parsed_model = parser.parse(model_str)
-
+        parsed_model = parser.parse(model_str)
         self.model_tree = parsed_model.model_copy()
 
         # Once model is loaded, initialize the model parameters and initial conditions
+        self.calc_outputs = []  # calculated outputs from CalcOutputs Section
         self._init_parameters()
 
         self.dep_var_names = list(self.Y0.keys())
@@ -98,8 +91,8 @@ class OdeModel(ABC):
 
 
 class JaxModel(OdeModel):
-    def __init__(self, path: str | Path | None = None, model_str: str | None = None):
-        super().__init__(path=path, model_str=model_str)
+    def __init__(self, model: str | Path):
+        super().__init__(model=model)
         # Will be set in from_model
         self.all_var_names = []
         self.all_var_indices = {}
@@ -210,8 +203,8 @@ class JaxModel(OdeModel):
 
 
 class ScipyModel(OdeModel):
-    def __init__(self, path: str | Path | None = None, model_str: str | None = None):
-        super().__init__(path=path, model_str=model_str)
+    def __init__(self, model: str | Path):
+        super().__init__(model=model)
 
     def model(self, t, y, args=None):
         """Build a tuple of dydt from the model tree, using dynamic_calcs for intermediate variables and generic expression evaluation."""

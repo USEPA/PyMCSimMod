@@ -30,7 +30,7 @@ class TestScipyModel:
         k = 0.5;
         End.
         """
-        model = ScipyModel(model_str=model_str)
+        model = ScipyModel(model=model_str)
         times = np.linspace(0, 5, 10)
         sol = model.run_model(times)
         assert sol.y.shape[0] == 1
@@ -55,7 +55,7 @@ class TestScipyModel:
         Dynamics { dt(X) = 0; }
         End.
         """
-        model = ScipyModel(model_str=model_str)
+        model = ScipyModel(model=model_str)
         context = {}
         result = model.evaluate_expression(math_expr_add, context)
         assert result == 7
@@ -67,7 +67,7 @@ class TestScipyModel:
         Dynamics { dt(X) = 0; }
         End.
         """
-        model = ScipyModel(model_str=model_str)
+        model = ScipyModel(model=model_str)
         context = {}
         result = model.evaluate_expression(math_expr_nested, context)
         assert result == 14
@@ -84,7 +84,7 @@ class TestJaxModel:
         k = 0.5;
         End.
         """
-        model = JaxModel(model_str=model_str)
+        model = JaxModel(model=model_str)
         times = np.linspace(0, 5, 10)
         sol = model.run_model(times)
         assert sol.ys.shape[1] == 1
@@ -108,7 +108,7 @@ class TestJaxModel:
         Dynamics { dt(X) = 0; }
         End.
         """
-        model = JaxModel(model_str=model_str)
+        model = JaxModel(model=model_str)
         # For JaxModel, all_vars must be a jnp array, but math_expr_add uses only constants
         all_vars = jnp.array([])
         result = model.evaluate_expression(math_expr_add, all_vars)
@@ -121,7 +121,7 @@ class TestJaxModel:
         Dynamics { dt(X) = 0; }
         End.
         """
-        model = JaxModel(model_str=model_str)
+        model = JaxModel(model=model_str)
         all_vars = jnp.array([])
         result = model.evaluate_expression(math_expr_nested, all_vars)
         assert result == 14
