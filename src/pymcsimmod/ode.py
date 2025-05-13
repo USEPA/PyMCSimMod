@@ -22,7 +22,7 @@ class Computed_Model(BaseModel):
     pass
 
 
-class ODE_Model(ABC):
+class OdeModel(ABC):
     def __init__(self, path: str | Path | None = None, model_str: str | None = None):
         self.calc_outputs = []  # calculated outputs from CalcOutputs Section
         
@@ -97,7 +97,7 @@ class ODE_Model(ABC):
         raise NotImplementedError("This method should be implemented in a subclass.")
 
 
-class Jax_Model(ODE_Model):
+class JaxModel(OdeModel):
     def __init__(self, path: str | Path | None = None, model_str: str | None = None):
         super().__init__(path=path, model_str=model_str)
         # Will be set in from_model
@@ -209,7 +209,7 @@ class Jax_Model(ODE_Model):
         return solution
 
 
-class Scipy_Model(ODE_Model):
+class ScipyModel(OdeModel):
     def __init__(self, path: str | Path | None = None, model_str: str | None = None):
         super().__init__(path=path, model_str=model_str)
 
