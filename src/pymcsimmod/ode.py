@@ -216,7 +216,7 @@ class Scipy_Model(ODE_Model):
     def __init__(self):
         self.use_jax = False
 
-    def model(self, t, y, args):
+    def model(self, t, y, args=None):
         """Build a tuple of dydt from the model tree, using dynamic_calcs for intermediate variables and generic expression evaluation."""
         # Build context: state variables, parameters, and calculated variables
         context = {name: y[i] for i, name in enumerate(self.dep_var_names)}
