@@ -17,10 +17,12 @@ def math_expr_nested():
     inner = MathematicalExpression(operator="+", lhs=Number(value=3), rhs=Number(value=4))
     return MathematicalExpression(operator="*", lhs=inner, rhs=Number(value=2))
 
+
 @pytest.fixture
 def math_expr_pow():
     # pow(3, 2)
     return MathematicalExpression(operator="pow", lhs=Number(value=3), rhs=Number(value=2))
+
 
 class TestScipyModel:
     def test_scipy_model_runs_and_updates(self):
@@ -40,10 +42,10 @@ class TestScipyModel:
         # Check ComputedModel interface
         assert sol.states.shape == (10, 1)
         assert sol.times.shape == (10,)
-        assert sol.var_names == ['A']
+        assert sol.var_names == ["A"]
         # Access by index and name
         np.testing.assert_allclose(sol[0], sol.states[:, 0])
-        np.testing.assert_allclose(sol['A'], sol.states[:, 0])
+        np.testing.assert_allclose(sol["A"], sol.states[:, 0])
         # Plotting (do not show in CI)
         ax = sol.plot_results(show=False)
         assert ax is not None
@@ -84,7 +86,7 @@ class TestScipyModel:
         context = {}
         result = model.evaluate_expression(math_expr_nested, context)
         assert result == 14
-    
+
     def test_pow_mathematical_expression_eval(self, math_expr_pow):
         model_str = """
         States = { X };
@@ -115,10 +117,10 @@ class TestJaxModel:
         # Check ComputedModel interface
         assert sol.states.shape == (10, 1)
         assert sol.times.shape == (10,)
-        assert sol.var_names == ['A']
+        assert sol.var_names == ["A"]
         # Access by index and name
         np.testing.assert_allclose(sol[0], sol.states[:, 0])
-        np.testing.assert_allclose(sol['A'], sol.states[:, 0])
+        np.testing.assert_allclose(sol["A"], sol.states[:, 0])
         # Plotting (do not show in CI)
         ax = sol.plot_results(show=False)
         assert ax is not None
@@ -159,7 +161,7 @@ class TestJaxModel:
         all_vars = jnp.array([])
         result = model.evaluate_expression(math_expr_nested, all_vars)
         assert result == 14
-    
+
     def test_pow_mathematical_expression_eval(self, math_expr_pow):
         model_str = """
         States = { X };

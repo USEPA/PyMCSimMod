@@ -1,13 +1,14 @@
+import operator
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from pathlib import Path
-import operator
 
 import diffrax
 import jax.numpy as jnp
 import numpy as np
 import scipy.integrate as sci
 from pydantic import BaseModel
+
 from pymcsimmod.extra_typing import NumericArray
 
 from .model import (
@@ -25,11 +26,12 @@ class ComputedModel(BaseModel):
     Adapter class for ODE solution results from either JaxModel (diffrax) or ScipyModel (solve_ivp).
     Provides a unified interface for accessing time, state, and plotting results.
     """
+
     times: NumericArray
     states: NumericArray
     var_names: list[str]
     backend: str  # 'jax' or 'scipy'
-    raw: object   # The raw solution object (diffrax.Solution or OdeResult)
+    raw: object  # The raw solution object (diffrax.Solution or OdeResult)
 
     @classmethod
     def from_scipy(cls, sol, var_names: list[str]):
@@ -43,7 +45,7 @@ class ComputedModel(BaseModel):
             times=sol.t,
             states=sol.y.T,  # shape (n_times, n_states)
             var_names=var_names,
-            backend='scipy',
+            backend="scipy",
             raw=sol,
         )
 
@@ -59,7 +61,7 @@ class ComputedModel(BaseModel):
             times=np.asarray(sol.ts),
             states=np.asarray(sol.ys),
             var_names=var_names,
-            backend='jax',
+            backend="jax",
             raw=sol,
         )
 
@@ -75,12 +77,13 @@ class ComputedModel(BaseModel):
             The matplotlib axis object.
         """
         import matplotlib.pyplot as plt
+
         if ax is None:
             fig, ax = plt.subplots()
         for i, name in enumerate(self.var_names):
             ax.plot(self.times, self.states[:, i], label=name, **kwargs)
-        ax.set_xlabel('Time')
-        ax.set_ylabel('State')
+        ax.set_xlabel("Time")
+        ax.set_ylabel("State")
         if legend:
             ax.legend()
         if show:
@@ -143,7 +146,7 @@ class OdeModel(ABC):
 
         for key, value in parameters.items():
             self.parameters[key] = value
-    
+
     def update_Y0(self, **Y0: float | int) -> None:
         """Update any initial conditions in the model tree in place. If a key passed in the
         Y0 dictionary does not exist in the model tree, it will raise an exception.
@@ -156,7 +159,9 @@ class OdeModel(ABC):
         """
         missing = [key for key in Y0 if key not in self.Y0]
         if missing:
-            raise KeyError(f"Initial condition(s) '{', '.join(missing)}' do not exist in the model tree.")
+            raise KeyError(
+                f"Initial condition(s) '{', '.join(missing)}' do not exist in the model tree."
+            )
 
         for key, value in Y0.items():
             self.Y0[key] = value
@@ -209,7 +214,7 @@ class JaxModel(OdeModel):
         elif isinstance(expr, MathematicalExpression):
             lhs = self.evaluate_expression(expr.lhs, all_vars)
             rhs = self.evaluate_expression(expr.rhs, all_vars)
-            
+
             expression_map = {
                 "+": operator.add,
                 "-": operator.sub,
@@ -219,7 +224,7 @@ class JaxModel(OdeModel):
             }
             if expr.operator not in expression_map:
                 raise ValueError(f"Unknown operator '{expr.operator}' in expression.")
-            return expression_map[expr.operator](lhs, rhs)  
+            return expression_map[expr.operator](lhs, rhs)
         elif hasattr(expr, "expression"):
             return self.evaluate_expression(expr.expression, all_vars)
         elif hasattr(expr, "condition") and hasattr(expr, "if_true") and hasattr(expr, "if_false"):
@@ -341,6 +346,7 @@ class ScipyModel(OdeModel):
         self, expr: MathematicalExpression, context: dict[str, float | int]
     ) -> float | int:
         import operator
+
         # Identifier
         if isinstance(expr, Identifier):
             name = expr.name
@@ -389,7 +395,7 @@ class ScipyModel(OdeModel):
                 "!=": operator.ne,
                 "<": operator.lt,
                 ">": operator.gt,
-                "<=" : operator.le,
+                "<=": operator.le,
                 ">=": operator.ge,
             }
             if cond.operator in condition_map:
