@@ -5,6 +5,7 @@ from pathlib import Path
 
 import diffrax
 import jax.numpy as jnp
+import matplotlib.pyplot as plt
 import numpy as np
 import scipy.integrate as sci
 from pydantic import BaseModel
@@ -25,6 +26,13 @@ class ComputedModel(BaseModel):
     """
     Adapter class for ODE solution results from either JaxModel (diffrax) or ScipyModel (solve_ivp).
     Provides a unified interface for accessing time, state, and plotting results.
+
+    Attributes:
+        times: Array of time points at which the solution is evaluated.
+        states: Array of state variable values at each time point (shape: [n_times, n_states]).
+        var_names: List of state variable names (order matches columns of states).
+        backend: String indicating the backend used ('jax' or 'scipy').
+        raw: The raw solution object from the backend solver (diffrax.Solution or OdeResult).
     """
 
     times: NumericArray
@@ -37,9 +45,13 @@ class ComputedModel(BaseModel):
     def from_scipy(cls, sol, var_names: list[str]):
         """
         Construct a ComputedModel from a scipy.integrate.OdeResult.
+
         Args:
-            sol: OdeResult from scipy.integrate.solve_ivp
-            var_names: List of variable names (state variable order)
+            sol: OdeResult from scipy.integrate.solve_ivp.
+            var_names: List of variable names (state variable order).
+
+        Returns:
+            ComputedModel instance with unified interface.
         """
         return cls(
             times=sol.t,
@@ -53,9 +65,13 @@ class ComputedModel(BaseModel):
     def from_jax(cls, sol, var_names: list[str]):
         """
         Construct a ComputedModel from a diffrax solution.
+
         Args:
-            sol: diffrax.Solution
-            var_names: List of variable names (state variable order)
+            sol: diffrax.Solution object.
+            var_names: List of variable names (state variable order).
+
+        Returns:
+            ComputedModel instance with unified interface.
         """
         return cls(
             times=np.asarray(sol.ts),
@@ -68,15 +84,16 @@ class ComputedModel(BaseModel):
     def plot_results(self, ax=None, show=True, legend=True, **kwargs):
         """
         Plot the ODE solution results for all state variables.
+
         Args:
-            ax: Optional matplotlib axis to plot on.
-            show: Whether to call plt.show().
-            legend: Whether to show legend.
-            **kwargs: Additional arguments to plt.plot.
+            ax: Optional matplotlib axis to plot on. If None, a new figure/axis is created.
+            show: Whether to call plt.show() after plotting (default: True).
+            legend: Whether to display the legend (default: True).
+            **kwargs: Additional keyword arguments passed to plt.plot.
+
         Returns:
-            The matplotlib axis object.
+            The matplotlib axis object containing the plot.
         """
-        import matplotlib.pyplot as plt
 
         if ax is None:
             fig, ax = plt.subplots()
@@ -92,7 +109,16 @@ class ComputedModel(BaseModel):
 
     def __getitem__(self, key):
         """
-        Allow access to state variable arrays by name or index.
+        Access state variable arrays by name or index.
+
+        Args:
+            key: int (column index) or str (variable name).
+
+        Returns:
+            Array of values for the selected variable across all time points.
+
+        Raises:
+            KeyError: If the key is not a valid index or variable name.
         """
         if isinstance(key, int):
             return self.states[:, key]
@@ -103,6 +129,9 @@ class ComputedModel(BaseModel):
             raise KeyError(f"Invalid key: {key}")
 
     def __repr__(self):
+        """
+        Return a string representation of the ComputedModel, including backend, shape info, and variable names.
+        """
         return (
             f"ComputedModel(backend={self.backend!r}, times=shape{self.times.shape}, "
             f"states=shape{self.states.shape}, var_names={self.var_names})"
@@ -111,7 +140,12 @@ class ComputedModel(BaseModel):
 
 class OdeModel(ABC):
     def __init__(self, model: str | Path):
-        """Load a model from a file path. This is a placeholder for the actual implementation."""
+        """
+        Load and parse a model from a file path or string, initializing parameters and initial conditions.
+
+        Args:
+            model: Path to model file or model string.
+        """
         model_str = model.read_text() if isinstance(model, Path) else model
 
         parser = ModelParser()
@@ -126,13 +160,15 @@ class OdeModel(ABC):
         self.dep_var_indices = {name: i for i, name in enumerate(self.dep_var_names)}
 
     def _init_parameters(self) -> None:
-        """Assign the parameters and initial conditions (Y0) from the model tree to the model instance."""
+        """
+        Assign the parameters and initial conditions (Y0) from the model tree to the model instance.
+        """
         self.parameters = self.model_tree.parameters
         self.Y0 = self.model_tree.Y0  # dict(state_var_name: value)
 
     def update_constants(self, **parameters: float | int) -> None:
-        """Update any constants in the model tree in place. If a key passed in the
-        parameters dictionary does not exist in the model tree, it will raise an exception.
+        """
+        Update any constants in the model tree in place.
 
         Args:
             **parameters: Keyword arguments where keys are parameter names and values are the new values.
@@ -148,14 +184,14 @@ class OdeModel(ABC):
             self.parameters[key] = value
 
     def update_Y0(self, **Y0: float | int) -> None:
-        """Update any initial conditions in the model tree in place. If a key passed in the
-        Y0 dictionary does not exist in the model tree, it will raise an exception.
+        """
+        Update any initial conditions in the model tree in place.
 
         Args:
-            **parameters: Keyword arguments where keys are parameter names and values are the new values.
+            **Y0: Keyword arguments where keys are state variable names and values are the new initial values.
 
         Raises:
-            KeyError: If a parameter name does not exist in the model tree.
+            KeyError: If a state variable name does not exist in the model tree.
         """
         missing = [key for key in Y0 if key not in self.Y0]
         if missing:
@@ -168,22 +204,58 @@ class OdeModel(ABC):
 
     @abstractmethod
     def model(self, t: float, y, args) -> object:
-        """Abstract ODE right-hand side function for subclass implementation."""
+        """
+        Abstract ODE right-hand side function for subclass implementation.
+        Should compute the time derivatives for the system of ODEs.
+
+        Args:
+            t: Current time.
+            y: Current state vector.
+            args: Additional arguments (e.g., parameters).
+
+        Returns:
+            Array of time derivatives for each state variable.
+        """
         raise NotImplementedError("This method should be implemented in a subclass.")
 
     @abstractmethod
     def evaluate_expression(self, expr, y) -> object:
-        """Abstract expression evaluator for subclass implementation."""
+        """
+        Abstract expression evaluator for subclass implementation.
+        Should recursively evaluate a parsed expression tree using the current variable context.
+
+        Args:
+            expr: Expression node to evaluate.
+            y: Variable context (array or dict, depending on backend).
+
+        Returns:
+            Evaluated value of the expression.
+        """
         raise NotImplementedError("This method should be implemented in a subclass.")
 
     @abstractmethod
     def run_model(self, times: Sequence) -> ComputedModel:
-        """Abstract ODE solver runner for subclass implementation."""
+        """
+        Abstract ODE solver runner for subclass implementation.
+        Should solve the ODE system over the given time points and return a ComputedModel.
+
+        Args:
+            times: Sequence of time points at which to solve the ODE system.
+
+        Returns:
+            ComputedModel instance containing the solution.
+        """
         raise NotImplementedError("This method should be implemented in a subclass.")
 
 
 class JaxModel(OdeModel):
     def __init__(self, model: str | Path):
+        """
+        Initialize a JaxModel from a model string or file, setting up variable indices for JAX evaluation.
+
+        Args:
+            model: Path to model file or model string.
+        """
         super().__init__(model=model)
         # Will be set in from_model
         self.all_var_names = []
@@ -200,7 +272,14 @@ class JaxModel(OdeModel):
     ) -> jnp.ndarray:
         """
         Recursively evaluate an expression using the provided flat JAX array of variables.
-        This is for evaluating expressions for a jax-specific ODE model.
+        Handles all supported expression types for JAX-based ODE models.
+
+        Args:
+            expr: Expression node to evaluate.
+            all_vars: JAX array of all variables (state, parameters, calcs).
+
+        Returns:
+            Evaluated value as a JAX array or scalar.
         """
         idx = self.all_var_indices
         if isinstance(expr, Identifier):
@@ -259,11 +338,7 @@ class JaxModel(OdeModel):
     def model(self, t: float, y: jnp.ndarray, args: tuple[jnp.ndarray, ...]) -> jnp.ndarray:
         """
         ODE right-hand side function for use with JAX-based solvers (e.g., diffrax).
-
-        This function computes the time derivatives (dydt) for the system of ODEs defined in the model.
-        It builds a flat JAX array of all variables (state, parameters, calculated variables), then evaluates
-        the ODE right-hand sides using the model's expression tree. This function is passed as the vector field
-        to diffrax's ODETerm.
+        Computes the time derivatives for the system of ODEs using the current state and parameters.
 
         Args:
             t: Current time (ignored for autonomous systems, but required by diffrax signature).
@@ -271,7 +346,7 @@ class JaxModel(OdeModel):
             args: Tuple containing parameter values as a JAX array.
 
         Returns:
-            dydt: JAX array of time derivatives for each state variable.
+            JAX array of time derivatives for each state variable.
         """
         # args: tuple (param_vals,)
         param_vals = args[0]
@@ -290,6 +365,15 @@ class JaxModel(OdeModel):
         return jnp.stack(dydt)
 
     def run_model(self, times: Sequence) -> ComputedModel:
+        """
+        Solve the ODE system using diffrax (JAX backend) and return a ComputedModel.
+
+        Args:
+            times: Sequence of time points at which to solve the ODE system.
+
+        Returns:
+            ComputedModel instance containing the solution.
+        """
         ode_term = diffrax.ODETerm(self.model)
         t0 = times[0]
         t_end = times[-1]
@@ -309,16 +393,18 @@ class JaxModel(OdeModel):
 
 class ScipyModel(OdeModel):
     def __init__(self, model: str | Path):
+        """
+        Initialize a ScipyModel from a model string or file.
+
+        Args:
+            model: Path to model file or model string.
+        """
         super().__init__(model=model)
 
     def model(self, t: float, y: np.ndarray, args: None = None) -> np.ndarray:
         """
         ODE right-hand side function for use with scipy.integrate.solve_ivp.
-
-        This function computes the time derivatives (dydt) for the system of ODEs defined in the model.
-        It builds a context from the current state vector `y`, model parameters, and any calculated variables
-        (from the Dynamics section), then evaluates the ODE right-hand sides using the model's expression tree.
-        This function is passed as the `fun` argument to solve_ivp.
+        Computes the time derivatives for the system of ODEs using the current state and parameters.
 
         Args:
             t: Current time (ignored for autonomous systems, but required by solve_ivp signature).
@@ -326,7 +412,7 @@ class ScipyModel(OdeModel):
             args: Optional extra arguments (not used, included for compatibility with JAX interface).
 
         Returns:
-            dydt: Array of time derivatives for each state variable.
+            NumPy array of time derivatives for each state variable.
         """
         # Build context: state variables, parameters, and calculated variables
         context = {name: y[i] for i, name in enumerate(self.dep_var_names)}
@@ -345,7 +431,17 @@ class ScipyModel(OdeModel):
     def evaluate_expression(
         self, expr: MathematicalExpression, context: dict[str, float | int]
     ) -> float | int:
-        import operator
+        """
+        Recursively evaluate an expression using the provided context dictionary.
+        Handles all supported expression types for SciPy-based ODE models.
+
+        Args:
+            expr: Expression node to evaluate.
+            context: Dictionary mapping variable names to their current values.
+
+        Returns:
+            Evaluated value as a float or int.
+        """
 
         # Identifier
         if isinstance(expr, Identifier):
@@ -415,7 +511,15 @@ class ScipyModel(OdeModel):
             raise TypeError(f"Unsupported expression type: {type(expr)}")
 
     def run_model(self, times: Sequence) -> ComputedModel:
-        """Use the tuple of dydt to build the module-specific model call"""
+        """
+        Solve the ODE system using scipy.integrate.solve_ivp and return a ComputedModel.
+
+        Args:
+            times: Sequence of time points at which to solve the ODE system.
+
+        Returns:
+            ComputedModel instance containing the solution.
+        """
         times = np.array(times)
         y_init = np.array([self.Y0[state] for state in self.dep_var_names])
         t_span = np.array([times[0], times[-1]])
