@@ -146,14 +146,6 @@ class Statement(BaseModel):
 
         return {self.lhs.eval(): eval_rhs(self.rhs)}
 
-    @property
-    def is_constant(self) -> bool:
-        """
-        Check if the statement is a constant assignment.
-        A statement is considered a constant assignment if the right-hand side is a number.
-        """
-        return isinstance(self.rhs, Number)  # TODO: Or is signed expression(Number)
-
 
 class StatesSection(BaseModel):
     type: Literal["States"] = "States"
