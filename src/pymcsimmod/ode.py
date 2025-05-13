@@ -25,7 +25,7 @@ class Computed_Model(BaseModel):
 class OdeModel(ABC):
     def __init__(self, path: str | Path | None = None, model_str: str | None = None):
         self.calc_outputs = []  # calculated outputs from CalcOutputs Section
-        
+
         """Load a model from a file path. This is a placeholder for the actual implementation."""
         parser = ModelParser()
         if path is None and model_str is None:

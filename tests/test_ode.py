@@ -1,19 +1,22 @@
-import pytest
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
-from pymcsimmod.ode import JaxModel, ScipyModel
 from pymcsimmod.model import MathematicalExpression, Number
+from pymcsimmod.ode import JaxModel, ScipyModel
+
 
 @pytest.fixture
 def math_expr_add():
     return MathematicalExpression(operator="+", lhs=Number(value=3), rhs=Number(value=4))
+
 
 @pytest.fixture
 def math_expr_nested():
     # (3 + 4) * 2
     inner = MathematicalExpression(operator="+", lhs=Number(value=3), rhs=Number(value=4))
     return MathematicalExpression(operator="*", lhs=inner, rhs=Number(value=2))
+
 
 class TestScipyModel:
     def test_scipy_model_runs_and_updates(self):
@@ -68,6 +71,7 @@ class TestScipyModel:
         context = {}
         result = model.evaluate_expression(math_expr_nested, context)
         assert result == 14
+
 
 class TestJaxModel:
     def test_jax_model_runs_and_updates(self):
