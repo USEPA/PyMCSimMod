@@ -39,14 +39,14 @@ class ODE_Model(ABC):
 
         self.model_tree = parsed_model.model_copy()
 
-        # Once model is loaded, initialize the model parameters and intitial conditions
+        # Once model is loaded, initialize the model parameters and initial conditions
         self._init_parameters()
 
         self.dep_var_names = list(self.Y0.keys())
         self.dep_var_indices = {name: i for i, name in enumerate(self.dep_var_names)}
 
     def _init_parameters(self) -> None:
-        """Assign the parameters and intitial conditions (Y0) from the model tree to the model instance."""
+        """Assign the parameters and initial conditions (Y0) from the model tree to the model instance."""
         self.parameters = self.model_tree.parameters
         self.Y0 = self.model_tree.Y0  # dict(state_var_name: value)
 
@@ -81,11 +81,11 @@ class ODE_Model(ABC):
                 self.Y0[key] = value
             else:
                 raise KeyError(
-                    f"Initial condiditon for state '{key}' does not exist in the model tree."
+                    f"Initial condition for state '{key}' does not exist in the model tree."
                 )
 
     @abstractmethod
-    def model(self, t, y):
+    def model(self, t, y, args):
         raise NotImplementedError("This method should be implemented in a subclass.")
 
     @abstractmethod
@@ -216,7 +216,7 @@ class Scipy_Model(ODE_Model):
     def __init__(self):
         self.use_jax = False
 
-    def model(self, t, y):
+    def model(self, t, y, args):
         """Build a tuple of dydt from the model tree, using dynamic_calcs for intermediate variables and generic expression evaluation."""
         # Build context: state variables, parameters, and calculated variables
         context = {name: y[i] for i, name in enumerate(self.dep_var_names)}
