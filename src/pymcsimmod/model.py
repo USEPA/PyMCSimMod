@@ -254,13 +254,98 @@ class Model(BaseModel):
     @property
     def dynamics(self) -> dict[str | int]:
         """
-        Extract dynamics from the model.
+        Extract only the dydt dynamics from the model.
         Returns a dictionary where keys are variable names and values are their dynamics.
         """
         dynamics = {}
         for section in self.sections:
             if isinstance(section, DynamicsSection):
                 for statement in section.statements:
-                    variable = statement.lhs.identifier.name
-                    dynamics[variable] = statement.rhs
+                    if isinstance(statement.lhs, DtVariable):
+                        variable = statement.lhs.identifier.name
+                        dynamics[variable] = statement.rhs
         return dynamics
+    @property
+    def dynamic_calcs(self) -> dict[str | int]:
+        """
+        Extract any calculations from the dynamics section from the model.
+        Returns a dictionary where keys are variable names and values are their dynamics calculations.
+        """
+        dynamics_calcs = {}
+        for section in self.sections:
+            if isinstance(section, DynamicsSection):
+                for statement in section.statements:
+                    if isinstance(statement.lhs, Identifier):
+                        variable = statement.lhs.name
+                        dynamics_calcs[variable] = statement.rhs
+        return dynamics_calcs
+
+    def evaluate_expression(self, expr: MathematicalExpression, context: dict[str, float | int]) -> float | int:
+        """
+        Recursively evaluate an expression using the provided context dict.
+        Context should include state variables, parameters, and any calculated variables.
+        """
+        # Identifier
+        if isinstance(expr, Identifier):
+            name = expr.name
+            if name in context:
+                return context[name]
+            raise KeyError(f"Unknown identifier '{name}' in expression.")
+        # Number
+        elif isinstance(expr, Number):
+            return expr.value
+        # SignedExpression (must be checked before generic hasattr checks)
+        elif isinstance(expr, SignedExpression):
+            val = self.evaluate_expression(expr.expression, context)
+            return val if expr.sign == '+' else -val
+        # MathematicalExpression
+        elif isinstance(expr, MathematicalExpression):
+            lhs = self.evaluate_expression(expr.lhs, context)
+            rhs = self.evaluate_expression(expr.rhs, context)
+            if expr.operator == '+':
+                return lhs + rhs
+            elif expr.operator == '-':
+                return lhs - rhs
+            elif expr.operator == '*':
+                return lhs * rhs
+            elif expr.operator == '/':
+                return lhs / rhs
+            else:
+                raise ValueError(f"Unknown operator '{expr.operator}' in expression.")
+        # ParenthesizedExpression
+        elif isinstance(expr, ParenthesizedExpression):
+            return self.evaluate_expression(expr.expression, context)
+        # TernaryExpression
+        elif hasattr(expr, 'condition') and hasattr(expr, 'if_true') and hasattr(expr, 'if_false'):
+            cond = expr.condition
+            lhs = self.evaluate_expression(cond.lhs, context)
+            rhs = self.evaluate_expression(cond.rhs, context)
+            op = cond.operator
+            if op == '==':
+                result = lhs == rhs
+            elif op == '!=':
+                result = lhs != rhs
+            elif op == '<':
+                result = lhs < rhs
+            elif op == '>':
+                result = lhs > rhs
+            elif op == '<=':
+                result = lhs <= rhs
+            elif op == '>=':
+                result = lhs >= rhs
+            else:
+                raise ValueError(f"Unknown condition operator: {op}")
+            return self.evaluate_expression(expr.if_true, context) if result else self.evaluate_expression(expr.if_false, context)
+        # MathematicalFunction (e.g., pow)
+        elif hasattr(expr, 'func') and hasattr(expr, 'args'):
+            if expr.func == 'pow':
+                args = [self.evaluate_expression(arg, context) for arg in expr.args]
+                return pow(*args)
+            else:
+                raise ValueError(f"Unknown function: {expr.func}")
+        # SpecialFunction (e.g., BetaRandom)
+        elif hasattr(expr, 'func') and hasattr(expr, 'args'):
+            # For now, just return 0 or raise (implement as needed)
+            raise NotImplementedError(f"Special function {expr.func} not implemented.")
+        else:
+            raise TypeError(f"Unsupported expression type: {type(expr)}")

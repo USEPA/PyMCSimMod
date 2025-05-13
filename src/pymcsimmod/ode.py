@@ -115,9 +115,13 @@ class Jax_Model(ODE_Model):
         super().__init__()
         self.use_jax = True
 
-    def evaluate_expression(self, expr, y):
+    def evaluate_expression(self, expr, y, extra_vars=None):
+        if extra_vars is None:
+            extra_vars = {}
         if isinstance(expr, Identifier):
             name = expr.name
+            if name in extra_vars:
+                return extra_vars[name]
             if name in self.parameters:
                 return self.parameters[name]
             elif name in self.Y0:
@@ -128,8 +132,8 @@ class Jax_Model(ODE_Model):
         elif isinstance(expr, Number):
             return expr.value
         elif isinstance(expr, MathematicalExpression):
-            lhs = self.evaluate_expression(expr.lhs, y)
-            rhs = self.evaluate_expression(expr.rhs, y)
+            lhs = self.evaluate_expression(expr.lhs, y, extra_vars=extra_vars)
+            rhs = self.evaluate_expression(expr.rhs, y, extra_vars=extra_vars)
             if expr.operator == '+':
                 return lhs + rhs
             elif expr.operator == '-':
@@ -143,14 +147,20 @@ class Jax_Model(ODE_Model):
         else:
             raise TypeError(f"Unsupported expression type: {type(expr)}")
 
-    def model(self, t, y, args=None):
-        # y is a jnp.ndarray
-        # Use a list comprehension for JAX compatibility
-        dydt = jnp.array([
-            self.evaluate_expression(self.model_tree.dynamics[state], y)
-            for state in self.dep_var_names
-        ])
-        return dydt
+    def model(self, t, y):
+        """Build a tuple of dydt from the model tree, using dynamic_calcs for intermediate variables."""
+        # Step 1: Compute dynamic_calcs (e.g., C) and store them
+        calc_vars = {}
+        for var, expr in self.model_tree.dynamic_calcs.items():
+            calc_vars[var] = self.evaluate_expression(expr, y, extra_vars=calc_vars)
+
+        # Step 2: Compute dydt, using calc_vars if needed
+        dydt = []
+        for state in self.dep_var_names:
+            expr = self.model_tree.dynamics[state]
+            val = self.evaluate_expression(expr, y, extra_vars=calc_vars)
+            dydt.append(val)
+        return jnp.array(dydt)
 
     def run_model(self, times: Sequence) -> Computed_Model:
         """Use the tuple of dydt to build the module-specific model call
@@ -183,47 +193,26 @@ class Scipy_Model(ODE_Model):
     def __init__(self):
         self.use_jax = False
 
-    def evaluate_expression(self, expr, y):
-        if isinstance(expr, Identifier):
-            name = expr.name
-            if name in self.parameters:
-                return self.parameters[name]
-            elif name in self.Y0:
-                idx = self.dep_var_indices[name]
-                return y[idx]
-            else:
-                raise KeyError(f"Unknown identifier '{name}' in expression.")
-        elif isinstance(expr, Number):
-            return expr.value
-        elif isinstance(expr, MathematicalExpression):
-            lhs = self.evaluate_expression(expr.lhs, y)
-            rhs = self.evaluate_expression(expr.rhs, y)
-            if expr.operator == '+':
-                return lhs + rhs
-            elif expr.operator == '-':
-                return lhs - rhs
-            elif expr.operator == '*':
-                return lhs * rhs
-            elif expr.operator == '/':
-                return lhs / rhs
-            else:
-                raise ValueError(f"Unknown operator '{expr.operator}' in expression.")
-        else:
-            raise TypeError(f"Unsupported expression type: {type(expr)}")
-
     def model(self, t, y):
-        """Build a generic tuple of dydt from the model tree. 
-        
-        """
+        """Build a tuple of dydt from the model tree, using dynamic_calcs for intermediate variables and generic expression evaluation."""
+        # Build context: state variables, parameters, and calculated variables
+        context = {name: y[i] for i, name in enumerate(self.dep_var_names)}
+        context.update(self.parameters)
+        # Compute dynamic_calcs (e.g., C) and store them in context
+        for var, expr in self.model_tree.dynamic_calcs.items():
+            context[var] = self.model_tree.evaluate_expression(expr, context)
+        # Compute dydt, using context (which now includes calc vars)
         dydt = []
-        # y is a vector (jnp.ndarray or np.ndarray)
         for state in self.dep_var_names:
             expr = self.model_tree.dynamics[state]
-            val = self.evaluate_expression(expr, y)
+            val = self.model_tree.evaluate_expression(expr, context)
             dydt.append(val)
-        
         return np.array(dydt)
-        
+
+    def evaluate_expression(self, expr, y, extra_vars=None):
+        # Deprecated: use model_tree.evaluate_expression instead
+        raise NotImplementedError("Use model_tree.evaluate_expression(expr, context) instead.")
+
     def run_model(self, times: Sequence) -> Computed_Model:
         """Use the tuple of dydt to build the module-specific model call
         """
@@ -238,4 +227,3 @@ class Scipy_Model(ODE_Model):
             t_eval=times,
         )
         return sol
-
