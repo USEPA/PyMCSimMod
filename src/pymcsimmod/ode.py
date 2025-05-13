@@ -26,7 +26,7 @@ class OdeModel(ABC):
     def __init__(self, model: str | Path):
         """Load a model from a file path. This is a placeholder for the actual implementation."""
         model_str = model.read_text() if isinstance(model, Path) else model
-        
+
         parser = ModelParser()
         parsed_model = parser.parse(model_str)
         self.model_tree = parsed_model.model_copy()
@@ -53,12 +53,13 @@ class OdeModel(ABC):
         Raises:
             KeyError: If a parameter name does not exist in the model tree.
         """
-        for key, value in parameters.items():
-            if key in self.parameters:
-                self.parameters[key] = value
-            else:
-                raise KeyError(f"Parameter '{key}' does not exist in the model tree.")
+        missing = [key for key in parameters if key not in self.parameters]
+        if missing:
+            raise KeyError(f"Parameter(s) '{', '.join(missing)}' do not exist in the model tree.")
 
+        for key, value in parameters.items():
+            self.parameters[key] = value
+    
     def update_Y0(self, **Y0: float | int) -> None:
         """Update any initial conditions in the model tree in place. If a key passed in the
         Y0 dictionary does not exist in the model tree, it will raise an exception.
@@ -69,13 +70,12 @@ class OdeModel(ABC):
         Raises:
             KeyError: If a parameter name does not exist in the model tree.
         """
+        missing = [key for key in Y0 if key not in self.Y0]
+        if missing:
+            raise KeyError(f"Initial condition(s) '{', '.join(missing)}' do not exist in the model tree.")
+
         for key, value in Y0.items():
-            if key in self.Y0:
-                self.Y0[key] = value
-            else:
-                raise KeyError(
-                    f"Initial condition for state '{key}' does not exist in the model tree."
-                )
+            self.Y0[key] = value
 
     @abstractmethod
     def model(self, t, y, args):
