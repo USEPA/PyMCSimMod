@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from pathlib import Path
+import operator
 
 import diffrax
 import jax.numpy as jnp
@@ -122,37 +123,33 @@ class JaxModel(OdeModel):
         elif isinstance(expr, MathematicalExpression):
             lhs = self.evaluate_expression(expr.lhs, all_vars)
             rhs = self.evaluate_expression(expr.rhs, all_vars)
-            if expr.operator == "+":
-                return lhs + rhs
-            elif expr.operator == "-":
-                return lhs - rhs
-            elif expr.operator == "*":
-                return lhs * rhs
-            elif expr.operator == "/":
-                return lhs / rhs
-            else:
+            
+            expression_map = {
+                "+": operator.add,
+                "-": operator.sub,
+                "*": operator.mul,
+                "/": operator.truediv,
+            }
+            if expr.operator not in expression_map:
                 raise ValueError(f"Unknown operator '{expr.operator}' in expression.")
+            return expression_map[expr.operator](lhs, rhs)  
         elif hasattr(expr, "expression"):
             return self.evaluate_expression(expr.expression, all_vars)
         elif hasattr(expr, "condition") and hasattr(expr, "if_true") and hasattr(expr, "if_false"):
             cond = expr.condition
             lhs = self.evaluate_expression(cond.lhs, all_vars)
             rhs = self.evaluate_expression(cond.rhs, all_vars)
-            op = cond.operator
-            if op == "==":
-                result = lhs == rhs
-            elif op == "!=":
-                result = lhs != rhs
-            elif op == "<":
-                result = lhs < rhs
-            elif op == ">":
-                result = lhs > rhs
-            elif op == "<=":
-                result = lhs <= rhs
-            elif op == ">=":
-                result = lhs >= rhs
-            else:
-                raise ValueError(f"Unknown condition operator: {op}")
+            condition_map = {
+                "==": operator.eq,
+                "!=": operator.ne,
+                "<": operator.lt,
+                ">": operator.gt,
+                "<=": operator.le,
+                ">=": operator.ge,
+            }
+            if cond.operator not in condition_map:
+                raise ValueError(f"Unknown condition '{cond.operator}' in expression.")
+            result = condition_map[cond.operator](lhs, rhs)
             return (
                 self.evaluate_expression(expr.if_true, all_vars)
                 if result
@@ -247,14 +244,14 @@ class ScipyModel(OdeModel):
         elif isinstance(expr, MathematicalExpression):
             lhs = self.evaluate_expression(expr.lhs, context)
             rhs = self.evaluate_expression(expr.rhs, context)
-            if expr.operator == "+":
-                return lhs + rhs
-            elif expr.operator == "-":
-                return lhs - rhs
-            elif expr.operator == "*":
-                return lhs * rhs
-            elif expr.operator == "/":
-                return lhs / rhs
+            expression_map = {
+                "+": operator.add,
+                "-": operator.sub,
+                "*": operator.mul,
+                "/": operator.truediv,
+            }
+            if expr.operator in expression_map:
+                return expression_map[expr.operator](lhs, rhs)
             else:
                 raise ValueError(f"Unknown operator '{expr.operator}' in expression.")
         # ParenthesizedExpression
@@ -265,21 +262,18 @@ class ScipyModel(OdeModel):
             cond = expr.condition
             lhs = self.evaluate_expression(cond.lhs, context)
             rhs = self.evaluate_expression(cond.rhs, context)
-            op = cond.operator
-            if op == "==":
-                result = lhs == rhs
-            elif op == "!=":
-                result = lhs != rhs
-            elif op == "<":
-                result = lhs < rhs
-            elif op == ">":
-                result = lhs > rhs
-            elif op == "<=":
-                result = lhs <= rhs
-            elif op == ">=":
-                result = lhs >= rhs
+            condition_map = {
+                "==": operator.eq,
+                "!=": operator.ne,
+                "<": operator.lt,
+                ">": operator.gt,
+                "<=": operator.le,
+                ">=": operator.ge,
+            }
+            if cond.operator in condition_map:
+                result = condition_map[cond.operator](lhs, rhs)
             else:
-                raise ValueError(f"Unknown condition operator: {op}")
+                raise ValueError(f"Unknown condition operator: {cond.operator}")
             return (
                 self.evaluate_expression(expr.if_true, context)
                 if result
