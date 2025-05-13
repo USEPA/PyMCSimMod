@@ -149,6 +149,16 @@ class ComputedModel(BaseModel):
             variables = self.var_names
         if isinstance(variables, str):
             variables = [variables]
+
+        # Test if any variable is not in self.var_names or self.calc_names
+        if not all(
+            var in self.var_names or (self.calc_names is not None and var in self.calc_names)
+            for var in variables
+        ):
+            raise KeyError(
+                f"One or more variables '{variables}' not found in states or calculated dynamics."
+            )
+
         for var in variables:
             if var in self.var_names:
                 idx = self.var_names.index(var)
@@ -156,8 +166,6 @@ class ComputedModel(BaseModel):
             elif self.calc_names is not None and var in self.calc_names:
                 idx = self.calc_names.index(var)
                 ax.plot(self.times, self.calc_dyn[:, idx], label=var, **kwargs)
-            else:
-                raise KeyError(f"Variable '{var}' not found in states or calculated dynamics.")
         ax.set_xlabel("Time")
         ax.set_ylabel("Value")
         if legend:
