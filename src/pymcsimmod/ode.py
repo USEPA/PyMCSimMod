@@ -1,6 +1,6 @@
 import operator
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 
 import diffrax
@@ -42,88 +42,8 @@ class ComputedModel(BaseModel):
     times: NumericArray
     states: NumericArray
     var_names: list[str]
-    backend: str  # 'jax' or 'scipy'
-    raw: object  # The raw solution object (diffrax.Solution or OdeResult)
-    calc_dyn: NumericArray = None  # shape (n_times, n_calcs)
-    calc_names: list[str] = None
-
-    @classmethod
-    def from_scipy(
-        cls,
-        sol: object,
-        var_names: list[str],
-        model_tree: object = None,
-        parameters: dict[str, float | int] | None = None,
-        evaluate_expression: Callable | None = None,
-    ) -> "ComputedModel":
-        """
-        Construct a ComputedModel from a scipy.integrate.OdeResult, optionally computing calculated dynamics.
-        """
-        calc_dyn = None
-        calc_names = None
-        if (
-            model_tree is not None
-            and parameters is not None
-            and evaluate_expression is not None
-            and hasattr(model_tree, "dynamic_calcs")
-        ):
-            calc_names = list(model_tree.dynamic_calcs.keys())
-            calc_dyn = np.zeros((sol.t.shape[0], len(calc_names)))
-            for i, t in enumerate(sol.t):
-                context = {name: sol.y[:, i][j] for j, name in enumerate(var_names)}
-                context.update(parameters)
-                for k, cname in enumerate(calc_names):
-                    expr = model_tree.dynamic_calcs[cname]
-                    calc_dyn[i, k] = evaluate_expression(expr, context)
-        return cls(
-            times=sol.t,
-            states=sol.y.T,  # shape (n_times, n_states)
-            var_names=var_names,
-            backend="scipy",
-            raw=sol,
-            calc_dyn=calc_dyn,
-            calc_names=calc_names,
-        )
-
-    @classmethod
-    def from_jax(
-        cls,
-        sol: object,  # diffrax.Solution
-        var_names: list[str],
-        model_tree: object = None,
-        parameters: dict[str, float | int] | None = None,
-        evaluate_expression: Callable | None = None,
-    ) -> "ComputedModel":
-        """
-        Construct a ComputedModel from a diffrax solution, optionally computing calculated dynamics.
-        """
-        calc_dyn = None
-        calc_names = None
-        if (
-            model_tree is not None
-            and parameters is not None
-            and evaluate_expression is not None
-            and hasattr(model_tree, "dynamic_calcs")
-        ):
-            calc_names = list(model_tree.dynamic_calcs.keys())
-            calc_dyn = np.zeros((sol.ts.shape[0], len(calc_names)))
-            for i, t in enumerate(sol.ts):
-                # Build all_vars as in JaxModel
-                state_vals = sol.ys[i]
-                param_vals = np.array([parameters[name] for name in parameters])
-                all_vars = np.concatenate([state_vals, param_vals])
-                for k, cname in enumerate(calc_names):
-                    expr = model_tree.dynamic_calcs[cname]
-                    calc_dyn[i, k] = float(evaluate_expression(expr, all_vars))
-        return cls(
-            times=np.asarray(sol.ts),
-            states=np.asarray(sol.ys),
-            var_names=var_names,
-            backend="jax",
-            raw=sol,
-            calc_dyn=calc_dyn,
-            calc_names=calc_names,
-        )
+    aux_outputs: NumericArray  # shape (n_times, n_calcs)
+    aux_names: list[str]
 
     @property
     def dataframe(self) -> pd.DataFrame:
@@ -133,9 +53,9 @@ class ComputedModel(BaseModel):
         data = {"time": self.times}
         for i, name in enumerate(self.var_names):
             data[name] = self.states[:, i]
-        if self.calc_dyn is not None and self.calc_names is not None:
-            for i, name in enumerate(self.calc_names):
-                data[name] = self.calc_dyn[:, i]
+        if self.aux_outputs is not None and self.aux_names is not None:
+            for i, name in enumerate(self.aux_names):
+                data[name] = self.aux_outputs[:, i]
         return pd.DataFrame(data)
 
     def plot_results(
@@ -168,7 +88,7 @@ class ComputedModel(BaseModel):
         if isinstance(variables, str):
             variables = [variables]
         if not all(
-            var in self.var_names or (self.calc_names is not None and var in self.calc_names)
+            var in self.var_names or (self.aux_names is not None and var in self.aux_names)
             for var in variables
         ):
             raise KeyError(
@@ -178,9 +98,9 @@ class ComputedModel(BaseModel):
             if var in self.var_names:
                 idx = self.var_names.index(var)
                 ax.plot(self.times, self.states[:, idx], label=var, **kwargs)
-            elif self.calc_names is not None and var in self.calc_names:
-                idx = self.calc_names.index(var)
-                ax.plot(self.times, self.calc_dyn[:, idx], label=var, **kwargs)
+            elif self.aux_names is not None and var in self.aux_names:
+                idx = self.aux_names.index(var)
+                ax.plot(self.times, self.aux_outputs[:, idx], label=var, **kwargs)
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
         if legend:
@@ -221,24 +141,15 @@ class ComputedModel(BaseModel):
         Raises:
             KeyError: If the key is not a valid index or variable name.
         """
-        if self.calc_dyn is None or self.calc_names is None:
+        if self.aux_outputs is None or self.aux_names is None:
             raise AttributeError("No calculated dynamics stored in this ComputedModel.")
         if isinstance(key, int):
-            return self.calc_dyn[:, key]
+            return self.aux_outputs[:, key]
         elif isinstance(key, str):
-            idx = self.calc_names.index(key)
-            return self.calc_dyn[:, idx]
+            idx = self.aux_names.index(key)
+            return self.aux_outputs[:, idx]
         else:
             raise KeyError(f"Invalid key: {key}")
-
-    def __repr__(self) -> str:
-        """
-        Return a string representation of the ComputedModel, including backend, shape info, and variable names.
-        """
-        return (
-            f"ComputedModel(backend={self.backend!r}, times=shape{self.times.shape}, "
-            f"states=shape{self.states.shape}, var_names={self.var_names})"
-        )
 
 
 class OdeModel(ABC):
@@ -478,15 +389,30 @@ class JaxModel(OdeModel):
         param_vals = jnp.array([self.parameters[name] for name in self.param_names])
         solver = diffrax.Dopri5()
         saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t_end, len(times)))
-        solution = diffrax.diffeqsolve(
+        sol = diffrax.diffeqsolve(
             ode_term, solver, t0=t0, t1=t_end, dt0=0.1, y0=y_init, saveat=saveat, args=(param_vals,)
         )
-        return ComputedModel.from_jax(
-            solution,
-            self.dep_var_names,
-            model_tree=self.model_tree,
-            parameters=self.parameters,
-            evaluate_expression=self.evaluate_expression,
+        self.sol = sol  # Store the raw solution with JaxModel
+
+        # Calculate the addtional dynamic variables (TODO: only variables in MCSim Outputs section)
+        calc_names = list(self.model_tree.dynamic_calcs.keys())
+        calc_dyn = np.zeros((sol.ts.shape[0], len(calc_names)))
+        for i, t in enumerate(sol.ts):
+            # Build all_vars as in JaxModel
+            state_vals = sol.ys[i]
+            param_vals = np.array([self.parameters[name] for name in self.parameters])
+            all_vars = np.concatenate([state_vals, param_vals])
+            for k, cname in enumerate(calc_names):
+                expr = self.model_tree.dynamic_calcs[cname]
+                calc_dyn[i, k] = float(self.evaluate_expression(expr, all_vars))
+
+        # Convert to numpy arrays when in ComputedModel
+        return ComputedModel(
+            times=np.asarray(sol.ts),
+            states=np.asarray(sol.ys),  # shape (n_times, n_states)
+            var_names=self.dep_var_names,
+            aux_outputs=calc_dyn,
+            aux_names=calc_names,
         )
 
 
@@ -622,10 +548,22 @@ class ScipyModel(OdeModel):
             y0=y_init,
             t_eval=times,
         )
-        return ComputedModel.from_scipy(
-            sol,
-            self.dep_var_names,
-            model_tree=self.model_tree,
-            parameters=self.parameters,
-            evaluate_expression=self.evaluate_expression,
+        self.sol = sol  # Store the raw solution with ScipyModel
+
+        # Calculate the addtional dynamic variables (TODO: only variables in MCSim Outputs section)
+        calc_names = list(self.model_tree.dynamic_calcs.keys())
+        calc_dyn = np.zeros((sol.t.shape[0], len(calc_names)))
+        for i, t in enumerate(sol.t):
+            context = {name: sol.y[:, i][j] for j, name in enumerate(self.dep_var_names)}
+            context.update(self.parameters)
+            for k, cname in enumerate(calc_names):
+                expr = self.model_tree.dynamic_calcs[cname]
+                calc_dyn[i, k] = self.evaluate_expression(expr, context)
+
+        return ComputedModel(
+            times=sol.t,
+            states=sol.y.T,  # shape (n_times, n_states)
+            var_names=self.dep_var_names,
+            aux_outputs=calc_dyn,
+            aux_names=calc_names,
         )

@@ -91,6 +91,10 @@ class SignedExpression(BaseModel):
     def to_mod(self) -> str:
         return f"{self.sign}{self.expression.to_mod()}"
 
+    def eval(self) -> float | int:
+        val = self.expression.eval()
+        return val if self.sign == "+" else -val
+
 
 class Condition(BaseModel):
     operator: str
@@ -134,11 +138,8 @@ class Statement(BaseModel):
     def to_dict(self) -> dict[str, int | float]:
         # Evaluate the right-hand side, handling SignedExpression recursively
         def eval_rhs(expr):
-            if hasattr(expr, "eval"):
+            if hasattr(expr, "eval"):  # Handles Number and SignedExpression
                 return expr.eval()
-            elif hasattr(expr, "sign") and hasattr(expr, "expression"):
-                val = eval_rhs(expr.expression)
-                return val if expr.sign == "+" else -val
             elif hasattr(expr, "value"):
                 return expr.value
             else:
