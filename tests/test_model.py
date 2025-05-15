@@ -1,6 +1,13 @@
 import pytest
 
-from pymcsimmod.model import Identifier, Number, SignedExpression, Statement
+from pymcsimmod.model import (
+    Condition,
+    Identifier,
+    MathematicalExpression,
+    Number,
+    SignedExpression,
+    Statement,
+)
 
 
 @pytest.fixture
@@ -16,6 +23,25 @@ def identifier_expr():
 @pytest.fixture
 def signed_expr():
     return SignedExpression(sign="-", expression=Number(value=2))
+
+
+@pytest.fixture
+def math_expr():
+    # 3 + 4
+    return MathematicalExpression(lhs=Number(value=3), operator="+", rhs=Number(value=4))
+
+
+@pytest.fixture
+def math_expr_nested():
+    # (2 * 5) - 1
+    inner = MathematicalExpression(lhs=Number(value=2), operator="*", rhs=Number(value=5))
+    return MathematicalExpression(lhs=inner, operator="-", rhs=Number(value=1))
+
+
+@pytest.fixture
+def condition_expr():
+    # 2 < 3
+    return Condition(lhs=Number(value=2), operator="<", rhs=Number(value=3))
 
 
 class TestModel:
