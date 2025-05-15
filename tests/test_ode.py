@@ -47,7 +47,7 @@ class TestScipyModel:
         np.testing.assert_allclose(sol[0], sol.states[:, 0])
         np.testing.assert_allclose(sol["A"], sol.states[:, 0])
         # Plotting (do not show in CI)
-        ax = sol.plot_results(show=False)
+        ax = sol.plot_results()
         assert ax is not None
 
         # Update parameter and check new solution is different
@@ -122,7 +122,7 @@ class TestJaxModel:
         np.testing.assert_allclose(sol[0], sol.states[:, 0])
         np.testing.assert_allclose(sol["A"], sol.states[:, 0])
         # Plotting (do not show in CI)
-        ax = sol.plot_results(show=False)
+        ax = sol.plot_results()
         assert ax is not None
 
         # Update parameter and check new solution is different

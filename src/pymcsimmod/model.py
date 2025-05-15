@@ -251,7 +251,7 @@ class Model(BaseModel):
         return self._Y0
 
     @property
-    def dynamics(self) -> dict[str | int]:
+    def dynamics(self) -> dict[str, MathematicalExpression]:
         """
         Extract only the dydt dynamics from the model.
         Returns a dictionary where keys are variable names and values are their dynamics.
@@ -268,7 +268,7 @@ class Model(BaseModel):
         return self._dynamics
 
     @property
-    def dynamic_calcs(self) -> dict[str | int]:
+    def dynamic_calcs(self) -> dict[str, MathematicalExpression]:
         """
         Extract any calculations from the dynamics section from the model.
         Returns a dictionary where keys are variable names and values are their dynamics calculations.

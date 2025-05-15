@@ -1,13 +1,15 @@
 import operator
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import diffrax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import scipy.integrate as sci
+from matplotlib.axes import Axes
 from pydantic import BaseModel
 
 from pymcsimmod.extra_typing import NumericArray
@@ -47,8 +49,13 @@ class ComputedModel(BaseModel):
 
     @classmethod
     def from_scipy(
-        cls, sol, var_names: list[str], model_tree=None, parameters=None, evaluate_expression=None
-    ):
+        cls,
+        sol: object,
+        var_names: list[str],
+        model_tree: object = None,
+        parameters: dict[str, float | int] | None = None,
+        evaluate_expression: Callable | None = None,
+    ) -> "ComputedModel":
         """
         Construct a ComputedModel from a scipy.integrate.OdeResult, optionally computing calculated dynamics.
         """
@@ -80,8 +87,13 @@ class ComputedModel(BaseModel):
 
     @classmethod
     def from_jax(
-        cls, sol, var_names: list[str], model_tree=None, parameters=None, evaluate_expression=None
-    ):
+        cls,
+        sol: object,  # diffrax.Solution
+        var_names: list[str],
+        model_tree: object = None,
+        parameters: dict[str, float | int] | None = None,
+        evaluate_expression: Callable | None = None,
+    ) -> "ComputedModel":
         """
         Construct a ComputedModel from a diffrax solution, optionally computing calculated dynamics.
         """
@@ -114,12 +126,10 @@ class ComputedModel(BaseModel):
         )
 
     @property
-    def dataframe(self):
+    def dataframe(self) -> pd.DataFrame:
         """
         Return a pandas DataFrame with columns for time, state variables, and calculated dynamic variables.
         """
-        import pandas as pd
-
         data = {"time": self.times}
         for i, name in enumerate(self.var_names):
             data[name] = self.states[:, i]
@@ -128,29 +138,35 @@ class ComputedModel(BaseModel):
                 data[name] = self.calc_dyn[:, i]
         return pd.DataFrame(data)
 
-    def plot_results(self, variables=None, ax=None, show=True, legend=True, **kwargs):
+    def plot_results(
+        self,
+        variables: str | list[str] | None = None,
+        ax: Axes | None = None,
+        legend: bool = True,
+        xlabel: str = "Time",
+        ylabel: str = "Value",
+        **kwargs,
+    ) -> Axes:
         """
         Plot the ODE solution results for selected variables (states or calculated dynamics).
 
         Args:
             variables: str or list of str, variable names to plot (state or calc_dyn). If None, plot all states.
             ax: Optional matplotlib axis to plot on. If None, a new figure/axis is created.
-            show: Whether to call plt.show() after plotting (default: True).
             legend: Whether to display the legend (default: True).
+            xlabel: Label for the x-axis (default: 'Time').
+            ylabel: Label for the y-axis (default: 'Value').
             **kwargs: Additional keyword arguments passed to plt.plot.
 
         Returns:
             The matplotlib axis object containing the plot.
         """
-
         if ax is None:
             fig, ax = plt.subplots()
         if variables is None:
             variables = self.var_names
         if isinstance(variables, str):
             variables = [variables]
-
-        # Test if any variable is not in self.var_names or self.calc_names
         if not all(
             var in self.var_names or (self.calc_names is not None and var in self.calc_names)
             for var in variables
@@ -158,7 +174,6 @@ class ComputedModel(BaseModel):
             raise KeyError(
                 f"One or more variables '{variables}' not found in states or calculated dynamics."
             )
-
         for var in variables:
             if var in self.var_names:
                 idx = self.var_names.index(var)
@@ -166,15 +181,13 @@ class ComputedModel(BaseModel):
             elif self.calc_names is not None and var in self.calc_names:
                 idx = self.calc_names.index(var)
                 ax.plot(self.times, self.calc_dyn[:, idx], label=var, **kwargs)
-        ax.set_xlabel("Time")
-        ax.set_ylabel("Value")
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
         if legend:
             ax.legend()
-        if show:
-            plt.show()
         return ax
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: int | str) -> np.ndarray:
         """
         Access state variable arrays by name or index.
 
@@ -195,7 +208,7 @@ class ComputedModel(BaseModel):
         else:
             raise KeyError(f"Invalid key: {key}")
 
-    def get_calc(self, key):
+    def get_calc(self, key: int | str) -> np.ndarray:
         """
         Access calculated dynamic variable arrays by name or index.
 
@@ -218,7 +231,7 @@ class ComputedModel(BaseModel):
         else:
             raise KeyError(f"Invalid key: {key}")
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """
         Return a string representation of the ComputedModel, including backend, shape info, and variable names.
         """
@@ -454,7 +467,7 @@ class JaxModel(OdeModel):
         ]
         return jnp.stack(dydt)
 
-    def run_model(self, times: Sequence) -> ComputedModel:
+    def run_model(self, times: Sequence[int, float]) -> ComputedModel:
         """
         Solve the ODE system using diffrax (JAX backend) and return a ComputedModel, including calculated dynamics.
         """
@@ -596,7 +609,7 @@ class ScipyModel(OdeModel):
         else:
             raise TypeError(f"Unsupported expression type: {type(expr)}")
 
-    def run_model(self, times: Sequence) -> ComputedModel:
+    def run_model(self, times: Sequence[int, float]) -> ComputedModel:
         """
         Solve the ODE system using scipy.integrate.solve_ivp and return a ComputedModel, including calculated dynamics.
         """
