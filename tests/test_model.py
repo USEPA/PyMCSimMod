@@ -11,7 +11,7 @@ from pymcsimmod.model import (
     SignedExpression,
     Statement,
 )
-from pymcsimmod.ode import ScipyModel, JaxModel
+from pymcsimmod.ode import JaxModel, ScipyModel
 
 
 @pytest.fixture
