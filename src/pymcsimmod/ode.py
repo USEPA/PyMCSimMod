@@ -381,6 +381,7 @@ class JaxModel(OdeModel):
     def run_model(self, times: Sequence[int, float]) -> ComputedModel:
         """
         Solve the ODE system using diffrax (JAX backend) and return a ComputedModel, including calculated dynamics.
+        All calculations remain JAX-compatible until the ComputedModel, where arrays are converted to numpy.
         """
         ode_term = diffrax.ODETerm(self.model)
         t0 = times[0]
@@ -394,24 +395,27 @@ class JaxModel(OdeModel):
         )
         self.sol = sol  # Store the raw solution with JaxModel
 
-        # Calculate the addtional dynamic variables (TODO: only variables in MCSim Outputs section)
+        # Calculate the additional dynamic variables (JAX-compatible)
         calc_names = list(self.model_tree.dynamic_calcs.keys())
-        calc_dyn = np.zeros((sol.ts.shape[0], len(calc_names)))
-        for i, t in enumerate(sol.ts):
-            # Build all_vars as in JaxModel
+        n_times = sol.ts.shape[0]
+        n_calcs = len(calc_names)
+        calc_dyn = jnp.zeros((n_times, n_calcs))
+        for i in range(n_times):
             state_vals = sol.ys[i]
-            param_vals = np.array([self.parameters[name] for name in self.parameters])
-            all_vars = np.concatenate([state_vals, param_vals])
+            param_vals_jax = jnp.array([self.parameters[name] for name in self.param_names])
+            all_vars = jnp.concatenate([state_vals, param_vals_jax, jnp.zeros(n_calcs)])
             for k, cname in enumerate(calc_names):
                 expr = self.model_tree.dynamic_calcs[cname]
-                calc_dyn[i, k] = float(self.evaluate_expression(expr, all_vars))
+                val = self.evaluate_expression(expr, all_vars)
+                calc_dyn = calc_dyn.at[i, k].set(val)
+                all_vars = all_vars.at[len(state_vals) + len(param_vals_jax) + k].set(val)
 
-        # Convert to numpy arrays when in ComputedModel
+        # Convert to numpy arrays only in ComputedModel
         return ComputedModel(
             times=np.asarray(sol.ts),
             states=np.asarray(sol.ys),  # shape (n_times, n_states)
             var_names=self.dep_var_names,
-            aux_outputs=calc_dyn,
+            aux_outputs=np.asarray(calc_dyn),
             aux_names=calc_names,
         )
 
@@ -559,6 +563,7 @@ class ScipyModel(OdeModel):
             for k, cname in enumerate(calc_names):
                 expr = self.model_tree.dynamic_calcs[cname]
                 calc_dyn[i, k] = self.evaluate_expression(expr, context)
+                context[cname] = calc_dyn[i, k]
 
         return ComputedModel(
             times=sol.t,
