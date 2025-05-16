@@ -11,23 +11,6 @@ from pymcsimmod.model import (
     Statement,
 )
 
-expression_map = {
-    "+": operator.add,
-    "-": operator.sub,
-    "*": operator.mul,
-    "/": operator.truediv,
-    "pow": pow,
-}
-
-condition_map = {
-    "==": operator.eq,
-    "!=": operator.ne,
-    "<": operator.lt,
-    ">": operator.gt,
-    "<=": operator.le,
-    ">=": operator.ge,
-}
-
 
 @pytest.fixture
 def number_expr():
@@ -72,16 +55,14 @@ class TestModel:
         assert math_expr.operator == "+"
         assert isinstance(math_expr.lhs, Number)
         assert isinstance(math_expr.rhs, Number)
-        assert expression_map[math_expr.operator](math_expr.lhs.eval(), math_expr.rhs.eval()) == 7
+        assert operator.add(math_expr.lhs.eval(), math_expr.rhs.eval()) == 7
 
     def test_condition_fixture(self, condition_expr):
         # Condition does not have .eval(), but we can check its structure
         assert condition_expr.operator == "<"
         assert isinstance(condition_expr.lhs, Number)
         assert isinstance(condition_expr.rhs, Number)
-        assert condition_map[condition_expr.operator](
-            condition_expr.lhs.eval(), condition_expr.rhs.eval()
-        )
+        assert operator.lt(condition_expr.lhs.eval(), condition_expr.rhs.eval())
 
     def test_statement_to_dict_with_signed(self, signed_expr):
         stmt = Statement(lhs=Identifier(name="y"), rhs=signed_expr)
