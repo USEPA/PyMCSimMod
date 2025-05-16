@@ -4,24 +4,52 @@ PyMCSimMod is a Python package that facilitates ordinary differential equation (
 
 ## Quickstart
 
-Install [uv](https://docs.astral.sh/uv/) and make it available and on your path. Then:
+PyMCSimMod requires Python 3.13+. Install the application:
 
 ```bash
-# update and install
-uv sync
-
-# test our CLI
-uv run pymcsimmod --help
-uv run pymcsimmod hello
-uv run pymcsimmod hello --name Andy
-uv run pymcsimmod bottles --num 20
+pip install pymcsimmod
 ```
 
-NOTE: this is a standard python package that you can install in other ways; we suggest using uv to make things easier, but you can always use standard pip and manage a virtual environment however you prefer.
+The `ModelParser` object in this library is able to parse a model file into a datastructure usable in python. We can define a model in the MCSim model format, and parse it.
+
+```python
+from pymcsimmod import parser
+
+text_model = """
+States = {
+    x,        # Number of rabbits (1000s).
+    y,        # Number of foxes (1000s).
+};
+
+Outputs = {};
+Inputs = {};
+
+alpha = 0.67;   # Birth rate of rabbits (1/d).
+beta = 1.33;    # Death rate of rabbits (1/d per 1000 foxes).
+gamma = 1.00;   # Birth rate of foxes (1/d per 1000 rabbits).
+delta = 1.00;   # Death rate of foxes (1/d).
+
+Initialize {
+    # Assign an initial value for each state variable.
+    x = 1.00;     # Initial number of rabbits (1000s).
+    y = 0.75;     # Initial number of foxes (1000s).
+}
+Dynamics {
+    # Time rate of change (ODE) for each state variable.
+    dt(x) = alpha * x - beta * x * y;
+    dt(y) = gamma * x * y - delta * y;
+}
+
+End.
+"""
+model = parser.ModelParser().parse(text_model)
+```
+
+Review the documentation in the `docs/notebook` folder for details on how to use.
 
 ## Developer setup
 
-Make sure you have `uv` available on your path. Then:
+Install [uv](https://docs.astral.sh/uv/) and make it available and on your path. Then:
 
 ```bash
 # clone project
@@ -40,22 +68,6 @@ uv run poe build   # build a python wheel
 ```
 
 GitHub Actions are enabled to execute whenever code is pushed to check code formatting and successful tests. In addition, when code is pushed to the `main` branch, a wheel artifact is generated and available in the pipeline results.
-
-## Parsing a model file
-
-The `ModelParser` object in this library is able to parse a model file into a datastructure usable in python.
-
-```python
-from pathlib import Path
-
-from pymcsimmod import parser
-
-model_path = Path(parser.__file__).parents[2] / "tests/data/pred_prey.model"
-
-model = parser.ModelParser().parse(model_path.read_text())
-
-# model is now set to a datastructure representing the contents of the model file
-```
 
 ## Disclaimer
 

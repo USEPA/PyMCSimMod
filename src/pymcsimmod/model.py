@@ -13,6 +13,9 @@ class Identifier(BaseModel):
     def to_mod(self) -> str:
         return self.name
 
+    def eval(self) -> str:
+        return self.name
+
 
 class DtVariable(BaseModel):
     identifier: Identifier
@@ -29,6 +32,9 @@ class Number(BaseModel):
 
     def to_mod(self) -> str:
         return str(self.value)
+
+    def eval(self):
+        return self.value
 
 
 # Mathematical functions
@@ -85,6 +91,10 @@ class SignedExpression(BaseModel):
     def to_mod(self) -> str:
         return f"{self.sign}{self.expression.to_mod()}"
 
+    def eval(self) -> float | int:
+        val = self.expression.eval()
+        return val if self.sign == "+" else -val
+
 
 class Condition(BaseModel):
     operator: str
@@ -124,6 +134,18 @@ class Statement(BaseModel):
 
     def to_mod(self) -> str:
         return f"{self.lhs.to_mod()} = {self.rhs.to_mod()};"
+
+    def to_dict(self) -> dict[str, int | float]:
+        # Evaluate the right-hand side, handling SignedExpression recursively
+        def eval_rhs(expr):
+            if hasattr(expr, "eval"):  # Handles Number and SignedExpression
+                return expr.eval()
+            elif hasattr(expr, "value"):
+                return expr.value
+            else:
+                raise TypeError(f"Unsupported expression type in Statement.to_dict: {type(expr)}")
+
+        return {self.lhs.eval(): eval_rhs(self.rhs)}
 
 
 class StatesSection(BaseModel):
@@ -199,3 +221,66 @@ class Model(BaseModel):
 
     def to_mod(self) -> str:
         return f"""{"\n".join(section.to_mod() for section in self.sections)}\nEnd."""
+
+    @property
+    def parameters(self) -> dict[str, float | int]:
+        """
+        Extract parameters from the model.
+        Returns a dictionary where keys are parameter names and values are their numeric values.
+        """
+        if not hasattr(self, "_params"):
+            params = {}
+            for section in self.sections:
+                if isinstance(section, Statement):
+                    params.update(section.to_dict())
+            self._params = params
+            return self._params
+
+    @property
+    def Y0(self) -> dict[str, float | int]:
+        """
+        Extract initial conditions from the model.
+        Returns a dictionary where keys are variable names and values are their initial values.
+        """
+        if not hasattr(self, "_Y0"):
+            Y0 = {}
+            for section in self.sections:
+                if isinstance(section, InitializeSection):
+                    for statement in section.statements:
+                        Y0.update(statement.to_dict())
+            self._Y0 = Y0
+        return self._Y0
+
+    @property
+    def dynamics(self) -> dict[str, MathematicalExpression]:
+        """
+        Extract only the dydt dynamics from the model.
+        Returns a dictionary where keys are variable names and values are their dynamics.
+        """
+        if not hasattr(self, "_dynamics"):
+            dynamics = {}
+            for section in self.sections:
+                if isinstance(section, DynamicsSection):
+                    for statement in section.statements:
+                        if isinstance(statement.lhs, DtVariable):
+                            variable = statement.lhs.identifier.name
+                            dynamics[variable] = statement.rhs
+            self._dynamics = dynamics
+        return self._dynamics
+
+    @property
+    def dynamic_calcs(self) -> dict[str, MathematicalExpression]:
+        """
+        Extract any calculations from the dynamics section from the model.
+        Returns a dictionary where keys are variable names and values are their dynamics calculations.
+        """
+        if not hasattr(self, "_dynamics_calcs"):
+            dynamics_calcs = {}
+            for section in self.sections:
+                if isinstance(section, DynamicsSection):
+                    for statement in section.statements:
+                        if isinstance(statement.lhs, Identifier):
+                            variable = statement.lhs.name
+                            dynamics_calcs[variable] = statement.rhs
+            self._dynamics_calcs = dynamics_calcs
+        return self._dynamics_calcs
