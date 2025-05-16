@@ -78,7 +78,7 @@ Initialize {
 Dynamics {
     # Output variables.
     C = A1 / Vd;          # Concentration in central compartment (mg/L).
-    
+    test_C = pow(C, k12); # Test pow command
 
     # Time rate of change (ODE) for each state variable.
     dt(A0) = -k01 * A0;

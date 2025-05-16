@@ -7,9 +7,11 @@ from pymcsimmod.model import (
     Identifier,
     MathematicalExpression,
     Number,
+    PowFunction,
     SignedExpression,
     Statement,
 )
+from pymcsimmod.ode import ScipyModel, JaxModel
 
 
 @pytest.fixture
@@ -37,6 +39,26 @@ def math_expr():
 def condition_expr():
     # 2 < 3
     return Condition(lhs=Number(value=2), operator="<", rhs=Number(value=3))
+
+
+@pytest.fixture
+def pow_function_expr():
+    # pow(2, 3) == 8
+    return PowFunction(args=[Number(value=2), Number(value=3)])
+
+
+@pytest.fixture
+def dummy_model():
+    # Minimal model string for OdeModel instantiation
+    return """
+        States = { A };
+        Initialize { A = 10; }
+        Dynamics {
+            dt(A) = -k * A;
+        }
+        k = 0.5;
+        End.
+        """
 
 
 class TestModel:
@@ -68,3 +90,18 @@ class TestModel:
         stmt = Statement(lhs=Identifier(name="y"), rhs=signed_expr)
         d = stmt.to_dict()
         assert d["y"] == -2
+
+    def test_powfunction_scipy(self, pow_function_expr, dummy_model):
+        model = ScipyModel(dummy_model)
+        context = {}  # No variables needed for this pow
+        result = model.evaluate_expression(pow_function_expr, context)
+        assert result == 8
+
+    def test_powfunction_jax(self, pow_function_expr, dummy_model):
+        import jax.numpy as jnp
+
+        model = JaxModel(dummy_model)
+        # all_vars must be a jnp array, but PowFunction only uses constants here
+        all_vars = jnp.array([])
+        result = model.evaluate_expression(pow_function_expr, all_vars)
+        assert result == 8
