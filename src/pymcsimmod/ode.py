@@ -14,8 +14,7 @@ import torchdiffeq
 from matplotlib.axes import Axes
 from pydantic import BaseModel
 
-from pymcsimmod.extra_typing import NumericArray
-
+from .extra_typing import NumericArray
 from .model import (
     Identifier,
     MathematicalExpression,
