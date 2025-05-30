@@ -170,6 +170,7 @@ class OdeModel(ABC):
         self.calc_outputs = []  # calculated outputs from CalcOutputs Section
         self._init_parameters()
 
+        self.inputs = parsed_model.inputs  
         self.dep_var_names = list(self.Y0.keys())
         self.dep_var_indices = {name: i for i, name in enumerate(self.dep_var_names)}
 
@@ -215,6 +216,26 @@ class OdeModel(ABC):
 
         for key, value in Y0.items():
             self.Y0[key] = value
+
+    def assign_forcing_function(self, input_name, forcing_function_name, *args, **kwargs):
+        """
+        Assign a forcing function to an input variable.
+        Args:
+            input_name: Name of the input variable to assign the forcing function to.
+            forcing_function_name: Name of the forcing function ('PerDose', 'NDoses', etc.).
+            *args, **kwargs: Parameters for the forcing function.
+        Raises:
+            ValueError: If input_name is not in self.inputs.
+            AttributeError: If the forcing function does not exist.
+        """
+        if not hasattr(self, 'forcing_functions'):
+            self.forcing_functions = {}
+        if input_name not in self.inputs:
+            raise ValueError(f"'{input_name}' is not a valid input variable. Valid inputs: {self.inputs}")
+        func_factory = getattr(self, forcing_function_name, None)
+        if func_factory is None or not callable(func_factory):
+            raise AttributeError(f"Forcing function '{forcing_function_name}' not found in ScipyModel.")
+        self.forcing_functions[input_name] = func_factory(*args, **kwargs)
 
     @abstractmethod
     def model(self, t: float, y, args) -> object:
@@ -281,8 +302,52 @@ class JaxModel(OdeModel):
         self.all_var_names = self.state_names + self.param_names + self.calc_names
         self.all_var_indices = {name: i for i, name in enumerate(self.all_var_names)}
 
+    @staticmethod
+    def OnOff(t, t0, t1, s=10.0):
+        """
+        JAX-compatible OnOff function for sharp transitions.
+        t: current time
+        t0: time when dose is applied
+        t1: time when dose is stopped
+        s: steepness (default 100)
+        """
+        t = jnp.asarray(t)
+        t0 = jnp.asarray(t0)
+        t1 = jnp.asarray(t1)
+        return (jnp.tanh(s * (t - t0)) - jnp.tanh(s * (t - t1))) / 2
+
+    @staticmethod
+    def PerDose(t0, duration, period, s=10.0):
+        """
+        Returns a JAX-compatible function of t for periodic dosing using OnOff, with parameters fixed.
+        Usage: PerDose(t0, duration, period)(t)
+        """
+        t0 = float(t0)
+        duration = float(duration)
+        period = float(period)
+        def func(t):
+            t = jnp.asarray(t)
+            n = jnp.floor((t - t0) / period)
+            start = t0 + n * period
+            stop = start + duration
+            return JaxModel.OnOff(t, start, stop, s)
+        return func
+
+    @staticmethod
+    def NDoses(t0_list, duration, s=10.0):
+        """
+        Returns a JAX-compatible function of t for multiple dosing using OnOff, with parameters fixed.
+        Usage: NDoses(t0_list, duration)(t)
+        """
+        t0_arr = jnp.array(t0_list)
+        duration = float(duration)
+        def func(t):
+            t = jnp.asarray(t)
+            return jnp.sum(JaxModel.OnOff(t, t0_arr, t0_arr + duration, s), axis=-1)
+        return func
+    
     def evaluate_expression(
-        self, expr: MathematicalExpression, all_vars: jnp.ndarray
+        self, expr: MathematicalExpression, all_vars: jnp.ndarray, t=None
     ) -> jnp.ndarray:
         """
         Recursively evaluate an expression using the provided flat JAX array of variables.
@@ -291,11 +356,35 @@ class JaxModel(OdeModel):
         Args:
             expr: Expression node to evaluate.
             all_vars: JAX array of all variables (state, parameters, calcs).
+            t: Current time (optional, for forcing functions).
 
         Returns:
             Evaluated value as a JAX array or scalar.
         """
-        context = {name:all_vars[i] for name,i in self.all_var_indices.items()}
+        # Build context in the order of all_var_names (state, param, calc)
+        context = {}
+        idx = 0
+        # State variables
+        for name in self.state_names:
+            context[name] = all_vars[idx]
+            idx += 1
+        # Parameter variables
+        for name in self.param_names:
+            context[name] = all_vars[idx]
+            idx += 1
+        # Calculated variables (evaluate in order, using context so far)
+        for name in self.calc_names:
+            expr_calc = self.model_tree.dynamic_calcs[name]
+            context[name] = expr_calc.evaluate(**context)
+            idx += 1
+        # Input variables: use forcing function if assigned, else parameter/default value, else 0.0
+        for input_name in self.inputs:
+            if t is not None and hasattr(self, 'forcing_functions') and input_name in self.forcing_functions:
+                context[input_name] = self.forcing_functions[input_name](t)
+            elif input_name in self.parameters:
+                context[input_name] = jnp.asarray(self.parameters[input_name])
+            else:
+                context[input_name] = jnp.asarray(0.0)
         return expr.evaluate(**context)
 
 
@@ -312,18 +401,18 @@ class JaxModel(OdeModel):
         Returns:
             JAX array of time derivatives for each state variable.
         """
-        # args: tuple (param_vals,)
         param_vals = args[0]
-        # y: state variables (jnp array)
+        # Build all_vars: state, param, calc (in order)
         all_vars = y
         all_vars = jnp.concatenate([all_vars, param_vals])
-        # Dynamic calcs (compute in order, using current all_vars)
+        # Compute calculated variables in order, using context with forcing functions at time t
         for name in self.calc_names:
             expr = self.model_tree.dynamic_calcs[name]
-            val = self.evaluate_expression(expr, all_vars)
+            val = self.evaluate_expression(expr, all_vars, t=t)
             all_vars = jnp.concatenate([all_vars, jnp.atleast_1d(val)])
+        # Evaluate ODEs, passing t so input variables use forcing functions if assigned
         dydt = [
-            self.evaluate_expression(self.model_tree.dynamics[state], all_vars)
+            self.evaluate_expression(self.model_tree.dynamics[state], all_vars, t=t)
             for state in self.state_names
         ]
         return jnp.stack(dydt)
@@ -337,7 +426,7 @@ class JaxModel(OdeModel):
         t_end = times[-1]
         y_init = jnp.array([self.Y0[state] for state in self.dep_var_names])
         param_vals = jnp.array([self.parameters[name] for name in self.param_names])
-        solver = diffrax.Dopri5()
+        solver = diffrax.Dopri8()
         saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t_end, len(times)))
         sol = diffrax.diffeqsolve(
             ode_term, solver, t0=t0, t1=t_end, dt0=0.1, y0=y_init, saveat=saveat, args=(param_vals,)
@@ -375,6 +464,42 @@ class ScipyModel(OdeModel):
             model: Path to model file or model string.
         """
         super().__init__(model=model)
+    
+    @staticmethod
+    def OnOff(t, t0, t1):
+        """
+        t: current time
+        t0: time (wrt to t) when dose is applied
+        t1: time (wrt to t) when dose is stopped
+        """
+        s = 10
+        y = (np.tanh(s*(t-t0)) - np.tanh(s*(t-t1)))/2
+        return y
+
+    @staticmethod
+    def PerDose(t0, duration, period):
+        """
+        Returns a function of t for periodic dosing using OnOff, with parameters fixed.
+        Usage: PerDose(t0, duration, period)(t)
+        """
+        def func(t):
+            if t < t0:
+                return 0.0
+            n = int((t - t0) // period)
+            start = t0 + n * period
+            stop = start + duration
+            return ScipyModel.OnOff(t, start, stop)
+        return func
+
+    @staticmethod
+    def NDoses(t0_list, duration):
+        """
+        Returns a function of t for multiple dosing using OnOff, with parameters fixed.
+        Usage: NDoses(t0_list, duration)(t)
+        """
+        def func(t):
+            return sum(ScipyModel.OnOff(t, t0, t0 + duration) for t0 in t0_list)
+        return func
 
     def model(self, t: float, y: np.ndarray, args: None = None) -> np.ndarray:
         """
@@ -392,6 +517,10 @@ class ScipyModel(OdeModel):
         # Build context: state variables, parameters, and calculated variables
         context = {name: y[i] for i, name in enumerate(self.dep_var_names)}
         context.update(self.parameters)
+        # Overwrite any input variable with its forcing function if assigned
+        if hasattr(self, 'forcing_functions'):
+            for input_name, func in self.forcing_functions.items():
+                context[input_name] = func(t)
         # Compute dynamic_calcs (e.g., C) and store them in context
         for var, expr in self.model_tree.dynamic_calcs.items():
             context[var] = self.evaluate_expression(expr, context)
@@ -432,6 +561,7 @@ class ScipyModel(OdeModel):
             t_span=t_span,
             y0=y_init,
             t_eval=times,
+            method='BDF'
         )
         self.sol = sol  # Store the raw solution with ScipyModel
 

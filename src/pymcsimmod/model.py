@@ -327,6 +327,18 @@ class Model(BaseModel):
             return self._params
 
     @property
+    def inputs(self) -> list[str]:
+        """
+        Extract inputs from the model.
+        Returns a list of input names.
+        """
+        if not hasattr(self, "_inputs"):
+            for section in self.sections:
+                if isinstance(section, InputsSection):
+                    self._inputs = [declaration.name for declaration in section.declarations]
+            return self._inputs
+
+    @property
     def Y0(self) -> dict[str, float | int]:
         """
         Extract initial conditions from the model.
