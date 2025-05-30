@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scipy.integrate as sci
+import torch
+import torchdiffeq
 from matplotlib.axes import Axes
 from pydantic import BaseModel
 
@@ -378,7 +380,7 @@ class JaxModel(OdeModel):
         ]
         return jnp.stack(dydt)
 
-    def run_model(self, times: Sequence[int, float]) -> ComputedModel:
+    def run_model(self, times: Sequence[int | float]) -> ComputedModel:
         """
         Solve the ODE system using diffrax (JAX backend) and return a ComputedModel, including calculated dynamics.
         """
@@ -417,15 +419,6 @@ class JaxModel(OdeModel):
 
 
 class ScipyModel(OdeModel):
-    def __init__(self, model: str | Path):
-        """
-        Initialize a ScipyModel from a model string or file.
-
-        Args:
-            model: Path to model file or model string.
-        """
-        super().__init__(model=model)
-
     def model(self, t: float, y: np.ndarray, args: None = None) -> np.ndarray:
         """
         ODE right-hand side function for use with scipy.integrate.solve_ivp.
@@ -535,7 +528,7 @@ class ScipyModel(OdeModel):
         else:
             raise TypeError(f"Unsupported expression type: {type(expr)}")
 
-    def run_model(self, times: Sequence[int, float]) -> ComputedModel:
+    def run_model(self, times: Sequence[int | float]) -> ComputedModel:
         """
         Solve the ODE system using scipy.integrate.solve_ivp and return a ComputedModel, including calculated dynamics.
         """
@@ -563,6 +556,235 @@ class ScipyModel(OdeModel):
         return ComputedModel(
             times=sol.t,
             states=sol.y.T,  # shape (n_times, n_states)
+            var_names=self.dep_var_names,
+            aux_outputs=calc_dyn,
+            aux_names=calc_names,
+        )
+
+
+class TorchNNModel(torch.nn.Module):
+    # Lotka-Volterra Predator-Prey Model
+    def __init__(self, dep_var_names, model_tree, parameters):
+        super().__init__()
+        self.dep_var_names = dep_var_names
+        self.model_tree = model_tree
+        self.parameters = parameters
+
+    def forward(self, t, y):
+        # Build context: state variables, parameters, and calculated variables
+        context = {name: y[i] for i, name in enumerate(self.dep_var_names)}
+        context.update(self.parameters)
+
+        # Compute dynamic_calcs (e.g., C) and store them in context
+        for var, expr in self.model_tree.dynamic_calcs.items():
+            context[var] = self.evaluate_expression(expr, context)
+
+        # Compute dydt, using context (which now includes calc vars)
+        dydt = []
+        for state in self.dep_var_names:
+            expr = self.model_tree.dynamics[state]
+            val = self.evaluate_expression(expr, context)
+            dydt.append(val)
+
+        return torch.stack(dydt)
+
+    def evaluate_expression(
+        self, expr: MathematicalExpression, context: dict[str, float | int]
+    ) -> float | int:
+        """
+        Recursively evaluate an expression using the provided context dictionary.
+        Handles all supported expression types for SciPy-based ODE models.
+
+        Args:
+            expr: Expression node to evaluate.
+            context: Dictionary mapping variable names to their current values.
+
+        Returns:
+            Evaluated value as a float or int.
+        """
+
+        # Identifier
+        if isinstance(expr, Identifier):
+            name = expr.name
+            if name in context:
+                return context[name]
+            raise KeyError(f"Unknown identifier '{name}' in expression.")
+        # Number
+        elif isinstance(expr, Number):
+            return expr.value
+        # SignedExpression (must be checked before generic hasattr checks)
+        elif isinstance(expr, SignedExpression):
+            val = self.evaluate_expression(expr.expression, context)
+            return val if expr.sign == "+" else -val
+        # MathematicalExpression
+        elif isinstance(expr, MathematicalExpression):
+            lhs = self.evaluate_expression(expr.lhs, context)
+            rhs = self.evaluate_expression(expr.rhs, context)
+            expression_map = {
+                "+": operator.add,
+                "-": operator.sub,
+                "*": operator.mul,
+                "/": operator.truediv,
+                "pow": pow,
+            }
+            if expr.operator in expression_map:
+                return expression_map[expr.operator](lhs, rhs)
+            else:
+                raise ValueError(f"Unknown operator '{expr.operator}' in expression.")
+        # PowFunction support
+        elif hasattr(expr, "func") and hasattr(expr, "args"):
+            if getattr(expr, "func", None) == "pow":
+                args = [self.evaluate_expression(arg, context) for arg in expr.args]
+                return pow(*args)
+            else:
+                raise ValueError(f"Unknown function: {getattr(expr, 'func', None)}")
+        # ParenthesizedExpression
+        elif isinstance(expr, ParenthesizedExpression):
+            return self.evaluate_expression(expr.expression, context)
+        # TernaryExpression
+        elif hasattr(expr, "condition") and hasattr(expr, "if_true") and hasattr(expr, "if_false"):
+            cond = expr.condition
+            lhs = self.evaluate_expression(cond.lhs, context)
+            rhs = self.evaluate_expression(cond.rhs, context)
+            condition_map = {
+                "==": operator.eq,
+                "!=": operator.ne,
+                "<": operator.lt,
+                ">": operator.gt,
+                "<=": operator.le,
+                ">=": operator.ge,
+            }
+            if cond.operator in condition_map:
+                result = condition_map[cond.operator](lhs, rhs)
+            else:
+                raise ValueError(f"Unknown condition operator: {cond.operator}")
+            return (
+                self.evaluate_expression(expr.if_true, context)
+                if result
+                else self.evaluate_expression(expr.if_false, context)
+            )
+        # SpecialFunction (e.g., BetaRandom)
+        elif hasattr(expr, "func") and hasattr(expr, "args"):
+            # For now, just return 0 or raise (implement as needed)
+            raise NotImplementedError(f"Special function {expr.func} not implemented.")
+        else:
+            raise TypeError(f"Unsupported expression type: {type(expr)}")
+
+
+class TorchModel(OdeModel):
+    def model(self) -> TorchNNModel:
+        return TorchNNModel(
+            dep_var_names=self.dep_var_names,
+            model_tree=self.model_tree,
+            parameters=self.parameters,
+        )
+
+    def evaluate_expression(
+        self, expr: MathematicalExpression, context: dict[str, float | int]
+    ) -> float | int:
+        """
+        Recursively evaluate an expression using the provided context dictionary.
+        Handles all supported expression types for SciPy-based ODE models.
+
+        Args:
+            expr: Expression node to evaluate.
+            context: Dictionary mapping variable names to their current values.
+
+        Returns:
+            Evaluated value as a float or int.
+        """
+
+        # Identifier
+        if isinstance(expr, Identifier):
+            name = expr.name
+            if name in context:
+                return context[name]
+            raise KeyError(f"Unknown identifier '{name}' in expression.")
+        # Number
+        elif isinstance(expr, Number):
+            return expr.value
+        # SignedExpression (must be checked before generic hasattr checks)
+        elif isinstance(expr, SignedExpression):
+            val = self.evaluate_expression(expr.expression, context)
+            return val if expr.sign == "+" else -val
+        # MathematicalExpression
+        elif isinstance(expr, MathematicalExpression):
+            lhs = self.evaluate_expression(expr.lhs, context)
+            rhs = self.evaluate_expression(expr.rhs, context)
+            expression_map = {
+                "+": operator.add,
+                "-": operator.sub,
+                "*": operator.mul,
+                "/": operator.truediv,
+                "pow": pow,
+            }
+            if expr.operator in expression_map:
+                return expression_map[expr.operator](lhs, rhs)
+            else:
+                raise ValueError(f"Unknown operator '{expr.operator}' in expression.")
+        # PowFunction support
+        elif hasattr(expr, "func") and hasattr(expr, "args"):
+            if getattr(expr, "func", None) == "pow":
+                args = [self.evaluate_expression(arg, context) for arg in expr.args]
+                return pow(*args)
+            else:
+                raise ValueError(f"Unknown function: {getattr(expr, 'func', None)}")
+        # ParenthesizedExpression
+        elif isinstance(expr, ParenthesizedExpression):
+            return self.evaluate_expression(expr.expression, context)
+        # TernaryExpression
+        elif hasattr(expr, "condition") and hasattr(expr, "if_true") and hasattr(expr, "if_false"):
+            cond = expr.condition
+            lhs = self.evaluate_expression(cond.lhs, context)
+            rhs = self.evaluate_expression(cond.rhs, context)
+            condition_map = {
+                "==": operator.eq,
+                "!=": operator.ne,
+                "<": operator.lt,
+                ">": operator.gt,
+                "<=": operator.le,
+                ">=": operator.ge,
+            }
+            if cond.operator in condition_map:
+                result = condition_map[cond.operator](lhs, rhs)
+            else:
+                raise ValueError(f"Unknown condition operator: {cond.operator}")
+            return (
+                self.evaluate_expression(expr.if_true, context)
+                if result
+                else self.evaluate_expression(expr.if_false, context)
+            )
+        # SpecialFunction (e.g., BetaRandom)
+        elif hasattr(expr, "func") and hasattr(expr, "args"):
+            # For now, just return 0 or raise (implement as needed)
+            raise NotImplementedError(f"Special function {expr.func} not implemented.")
+        else:
+            raise TypeError(f"Unsupported expression type: {type(expr)}")
+
+    def run_model(self, times: Sequence[int | float]) -> ComputedModel:
+        model = self.model()
+        y0 = torch.tensor(list(self.Y0.values()))
+        if not isinstance(times, torch.Tensor):
+            times = torch.tensor(times)
+        with torch.no_grad():
+            sol = torchdiffeq.odeint(model, y0, times)
+
+        # Calculate the additional dynamic variables (TODO: only variables in MCSim Outputs section)
+        calc_names = list(self.model_tree.dynamic_calcs.keys())
+        n_times = times.shape[0]
+        n_calcs = len(calc_names)
+        calc_dyn = np.zeros((n_times, n_calcs))
+        context = self.parameters.copy()
+        np_sol = sol.numpy()
+        for i in range(n_times):
+            context.update({name: np_sol[i, j] for j, name in enumerate(self.dep_var_names)})
+            for j, cname in enumerate(calc_names):
+                expr = self.model_tree.dynamic_calcs[cname]
+                calc_dyn[i, j] = self.evaluate_expression(expr, context)
+
+        return ComputedModel(
+            times=times.numpy(),
+            states=sol.numpy(),
             var_names=self.dep_var_names,
             aux_outputs=calc_dyn,
             aux_names=calc_names,
