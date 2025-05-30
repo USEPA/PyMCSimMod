@@ -10,6 +10,9 @@ from pydantic import BaseModel, Field
 class Identifier(BaseModel):
     name: str
 
+    def evaluate(self,**kwargs):
+        return kwargs[self.name]
+
     def to_mod(self) -> str:
         return self.name
 
@@ -20,6 +23,13 @@ class Identifier(BaseModel):
 class DtVariable(BaseModel):
     identifier: Identifier
 
+    @property
+    def name(self):
+        return self.identifier.name
+    
+    def evaluate(self,**kwargs):
+        return kwargs[self.name]
+
     def to_mod(self) -> str:
         return f"dt({self.identifier.to_mod()})"
 
@@ -29,6 +39,9 @@ Variable = Identifier | DtVariable
 
 class Number(BaseModel):
     value: int | float
+
+    def evaluate(self,**kwargs):
+        return self.value
 
     def to_mod(self) -> str:
         return str(self.value)
@@ -44,6 +57,9 @@ class PowFunction(BaseModel):
     func: Literal["pow"] = "pow"
     args: list[Expression]
 
+    def evaluate(self,**kwargs):
+        return pow(self.args[0].evaluate(**kwargs),self.args[1].evaluate(**kwargs))
+
     def to_mod(self) -> str:
         return f"""pow({", ".join(arg.to_mod() for arg in self.args)})"""
 
@@ -58,6 +74,9 @@ class BetaRandomFunction(BaseModel):
     func: Literal["BetaRandom"] = "BetaRandom"
     args: list[Expression]
 
+    def evaluate(self,**kwargs):
+        raise NotImplementedError()
+
     def to_mod(self) -> str:
         return f"""BetaRandom({", ".join(arg.to_mod() for arg in self.args)})"""
 
@@ -71,6 +90,9 @@ SpecialFunction = BetaRandomFunction
 class ParenthesizedExpression(BaseModel):
     expression: Expression
 
+    def evaluate(self,**kwargs):
+        return self.expression.evaluate(**kwargs)
+
     def to_mod(self) -> str:
         return f"({self.expression.to_mod()})"
 
@@ -80,6 +102,18 @@ class MathematicalExpression(BaseModel):
     lhs: Expression
     rhs: Expression
 
+    def evaluate(self,**kwargs):
+        # instead explode this class into subclasses for each of these
+        if self.operator == "+":
+            return self.lhs.evaluate(**kwargs) + self.rhs.evaluate(**kwargs)
+        if self.operator == "-":
+            return self.lhs.evaluate(**kwargs) - self.rhs.evaluate(**kwargs)
+        if self.operator == "*":
+            return self.lhs.evaluate(**kwargs) * self.rhs.evaluate(**kwargs)
+        if self.operator == "/":
+            return self.lhs.evaluate(**kwargs) / self.rhs.evaluate(**kwargs)
+
+
     def to_mod(self) -> str:
         return f"{self.lhs.to_mod()} {self.operator} {self.rhs.to_mod()}"
 
@@ -87,6 +121,13 @@ class MathematicalExpression(BaseModel):
 class SignedExpression(BaseModel):
     sign: str
     expression: Variable | Number | ParenthesizedExpression
+
+    def evaluate(self,**kwargs):
+        # instead explode this class into subclasses for each of these
+        if self.sign == "+":
+            return self.expression.evaluate(**kwargs)
+        if self.sign == "-":
+            return - self.expression.evaluate(**kwargs)
 
     def to_mod(self) -> str:
         return f"{self.sign}{self.expression.to_mod()}"
@@ -101,6 +142,22 @@ class Condition(BaseModel):
     lhs: Expression
     rhs: Expression
 
+    def evaluate(self,**kwargs):
+        # instead explode this class into subclasses for each of these
+        if self.operator == "==":
+            return self.lhs.evaluate(**kwargs) == self.rhs.evaluate(**kwargs)
+        if self.operator == "!=":
+            return self.lhs.evaluate(**kwargs) != self.rhs.evaluate(**kwargs)
+        if self.operator == "<":
+            return self.lhs.evaluate(**kwargs) < self.rhs.evaluate(**kwargs)
+        if self.operator == ">":
+            return self.lhs.evaluate(**kwargs) > self.rhs.evaluate(**kwargs)
+        if self.operator == "<=":
+            return self.lhs.evaluate(**kwargs) <= self.rhs.evaluate(**kwargs)
+        if self.operator == ">=":
+            return self.lhs.evaluate(**kwargs) >= self.rhs.evaluate(**kwargs)
+                
+
     def to_mod(self) -> str:
         return f"{self.lhs.to_mod()} {self.operator} {self.rhs.to_mod()}"
 
@@ -109,6 +166,10 @@ class TernaryExpression(BaseModel):
     condition: Condition
     if_true: Expression
     if_false: Expression
+
+    def evaluate(self,**kwargs):
+        return self.if_true.evaluate(**kwargs) if self.condition.evaluate(**kwargs) else self.if_false.evaluate(**kwargs)
+
 
     def to_mod(self) -> str:
         return f"{self.condition.to_mod()} ? {self.if_true.to_mod()} : {self.if_false.to_mod()}"
@@ -131,6 +192,10 @@ Expression = (
 class Statement(BaseModel):
     lhs: Variable
     rhs: Expression
+
+    @property
+    def dynamic(self):
+        return isinstance(self.lhs,DtVariable)
 
     def to_mod(self) -> str:
         return f"{self.lhs.to_mod()} = {self.rhs.to_mod()};"
@@ -184,6 +249,15 @@ class DynamicsSection(BaseModel):
     type: Literal["Dynamics"] = "Dynamics"
     statements: list[Statement]
 
+    def get_dynamics(self,kwargs):
+        dynamics = []
+        for statement in self.statements:
+            if statement.dynamic:
+                dynamics.append(statement.rhs.evaluate(**kwargs))
+            else:
+                kwargs[statement.lhs.name] = statement.rhs.evaluate(**kwargs)
+        return dynamics    
+
     def to_mod(self) -> str:
         return f"""Dynamics {{\n{"\n".join(f"    {statement.to_mod()}" for statement in self.statements)}\n}}"""
 
@@ -218,6 +292,22 @@ Section = Annotated[
 
 class Model(BaseModel):
     sections: list[Section | Statement]
+
+    @property
+    def dynamics(self):
+        return next((_ for _ in self.sections if isinstance(_,DynamicsSection)),None)
+
+    def set_params(self:Model):
+        self.globals = {}
+        get_declaration_map = lambda section: {variable.name:0 for variable in section.declarations}
+        if section:=next((_ for _ in self.sections if isinstance(_,StatesSection)),None):
+            self.states=get_declaration_map(section)
+        if section:=next((_ for _ in self.sections if isinstance(_,InputsSection)),None):
+            self.inputs=get_declaration_map(section)
+        if section:=next((_ for _ in self.sections if isinstance(_,OutputsSection)),None):
+            self.outputs=get_declaration_map(section)
+        #for statement in [_ for _ in self.sections if isinstance(_,Statement)]:
+        #    self.globals[statement.lhs.name] = statement.rhs.evaluate()(**self._things)
 
     def to_mod(self) -> str:
         return f"""{"\n".join(section.to_mod() for section in self.sections)}\nEnd."""

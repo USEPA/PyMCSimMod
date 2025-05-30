@@ -295,59 +295,9 @@ class JaxModel(OdeModel):
         Returns:
             Evaluated value as a JAX array or scalar.
         """
-        idx = self.all_var_indices
-        if isinstance(expr, Identifier):
-            name = expr.name
-            return all_vars[idx[name]]
-        elif isinstance(expr, Number):
-            return jnp.asarray(expr.value)
-        elif isinstance(expr, SignedExpression):
-            val = self.evaluate_expression(expr.expression, all_vars)
-            return val if expr.sign == "+" else -val
-        elif isinstance(expr, MathematicalExpression):
-            lhs = self.evaluate_expression(expr.lhs, all_vars)
-            rhs = self.evaluate_expression(expr.rhs, all_vars)
+        context = {name:all_vars[i] for name,i in self.all_var_indices.items()}
+        return expr.evaluate(**context)
 
-            expression_map = {
-                "+": operator.add,
-                "-": operator.sub,
-                "*": operator.mul,
-                "/": operator.truediv,
-                "pow": jnp.power,
-            }
-            if expr.operator not in expression_map:
-                raise ValueError(f"Unknown operator '{expr.operator}' in expression.")
-            return expression_map[expr.operator](lhs, rhs)
-        elif hasattr(expr, "expression"):
-            return self.evaluate_expression(expr.expression, all_vars)
-        elif hasattr(expr, "condition") and hasattr(expr, "if_true") and hasattr(expr, "if_false"):
-            cond = expr.condition
-            lhs = self.evaluate_expression(cond.lhs, all_vars)
-            rhs = self.evaluate_expression(cond.rhs, all_vars)
-            condition_map = {
-                "==": operator.eq,
-                "!=": operator.ne,
-                "<": operator.lt,
-                ">": operator.gt,
-                "<=": operator.le,
-                ">=": operator.ge,
-            }
-            if cond.operator not in condition_map:
-                raise ValueError(f"Unknown condition '{cond.operator}' in expression.")
-            result = condition_map[cond.operator](lhs, rhs)
-            return (
-                self.evaluate_expression(expr.if_true, all_vars)
-                if result
-                else self.evaluate_expression(expr.if_false, all_vars)
-            )
-        elif hasattr(expr, "func") and hasattr(expr, "args"):
-            if expr.func == "pow":
-                args = [self.evaluate_expression(arg, all_vars) for arg in expr.args]
-                return jnp.power(*args)
-            else:
-                raise ValueError(f"Unknown function: {expr.func}")
-        else:
-            raise TypeError(f"Unsupported expression type: {type(expr)}")
 
     def model(self, t: float, y: jnp.ndarray, args: tuple[jnp.ndarray, ...]) -> jnp.ndarray:
         """
@@ -468,72 +418,7 @@ class ScipyModel(OdeModel):
             Evaluated value as a float or int.
         """
 
-        # Identifier
-        if isinstance(expr, Identifier):
-            name = expr.name
-            if name in context:
-                return context[name]
-            raise KeyError(f"Unknown identifier '{name}' in expression.")
-        # Number
-        elif isinstance(expr, Number):
-            return expr.value
-        # SignedExpression (must be checked before generic hasattr checks)
-        elif isinstance(expr, SignedExpression):
-            val = self.evaluate_expression(expr.expression, context)
-            return val if expr.sign == "+" else -val
-        # MathematicalExpression
-        elif isinstance(expr, MathematicalExpression):
-            lhs = self.evaluate_expression(expr.lhs, context)
-            rhs = self.evaluate_expression(expr.rhs, context)
-            expression_map = {
-                "+": operator.add,
-                "-": operator.sub,
-                "*": operator.mul,
-                "/": operator.truediv,
-                "pow": pow,
-            }
-            if expr.operator in expression_map:
-                return expression_map[expr.operator](lhs, rhs)
-            else:
-                raise ValueError(f"Unknown operator '{expr.operator}' in expression.")
-        # PowFunction support
-        elif hasattr(expr, "func") and hasattr(expr, "args"):
-            if getattr(expr, "func", None) == "pow":
-                args = [self.evaluate_expression(arg, context) for arg in expr.args]
-                return pow(*args)
-            else:
-                raise ValueError(f"Unknown function: {getattr(expr, 'func', None)}")
-        # ParenthesizedExpression
-        elif isinstance(expr, ParenthesizedExpression):
-            return self.evaluate_expression(expr.expression, context)
-        # TernaryExpression
-        elif hasattr(expr, "condition") and hasattr(expr, "if_true") and hasattr(expr, "if_false"):
-            cond = expr.condition
-            lhs = self.evaluate_expression(cond.lhs, context)
-            rhs = self.evaluate_expression(cond.rhs, context)
-            condition_map = {
-                "==": operator.eq,
-                "!=": operator.ne,
-                "<": operator.lt,
-                ">": operator.gt,
-                "<=": operator.le,
-                ">=": operator.ge,
-            }
-            if cond.operator in condition_map:
-                result = condition_map[cond.operator](lhs, rhs)
-            else:
-                raise ValueError(f"Unknown condition operator: {cond.operator}")
-            return (
-                self.evaluate_expression(expr.if_true, context)
-                if result
-                else self.evaluate_expression(expr.if_false, context)
-            )
-        # SpecialFunction (e.g., BetaRandom)
-        elif hasattr(expr, "func") and hasattr(expr, "args"):
-            # For now, just return 0 or raise (implement as needed)
-            raise NotImplementedError(f"Special function {expr.func} not implemented.")
-        else:
-            raise TypeError(f"Unsupported expression type: {type(expr)}")
+        return expr.evaluate(**context)
 
     def run_model(self, times: Sequence[int, float]) -> ComputedModel:
         """
