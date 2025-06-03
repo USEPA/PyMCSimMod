@@ -5,6 +5,7 @@ from pathlib import Path
 
 import diffrax
 import jax.numpy as jnp
+import jax
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -302,6 +303,9 @@ class JaxModel(OdeModel):
         self.all_var_names = self.state_names + self.param_names + self.calc_names
         self.all_var_indices = {name: i for i, name in enumerate(self.all_var_names)}
 
+    def evaluate_expression(self, expr, y):
+        pass
+
     @staticmethod
     def OnOff(t, t0, t1, s=10.0):
         """
@@ -346,109 +350,98 @@ class JaxModel(OdeModel):
             return jnp.sum(JaxModel.OnOff(t, t0_arr, t0_arr + duration, s), axis=-1)
         return func
     
-    def evaluate_expression(
-        self, expr: MathematicalExpression, all_vars: jnp.ndarray, t=None
-    ) -> jnp.ndarray:
-        """
-        Recursively evaluate an expression using the provided flat JAX array of variables.
-        Handles all supported expression types for JAX-based ODE models.
-
-        Args:
-            expr: Expression node to evaluate.
-            all_vars: JAX array of all variables (state, parameters, calcs).
-            t: Current time (optional, for forcing functions).
-
-        Returns:
-            Evaluated value as a JAX array or scalar.
-        """
-        # Build context in the order of all_var_names (state, param, calc)
+    @staticmethod
+    def _build_context_and_dydt(all_vars, t, forcing_functions, model_tree, state_names, param_names, calc_names, inputs):
         context = {}
         idx = 0
-        # State variables
-        for name in self.state_names:
+        # State variables as JAX arrays
+        for name in state_names:
             context[name] = all_vars[idx]
             idx += 1
-        # Parameter variables
-        for name in self.param_names:
+        # Parameter variables as JAX arrays
+        for name in param_names:
             context[name] = all_vars[idx]
             idx += 1
         # Calculated variables (evaluate in order, using context so far)
-        for name in self.calc_names:
-            expr_calc = self.model_tree.dynamic_calcs[name]
+        for name in calc_names:
+            expr_calc = model_tree.dynamic_calcs[name]
+            # Ensure all context values are JAX arrays
             context[name] = expr_calc.evaluate(**context)
             idx += 1
-        # Input variables: use forcing function if assigned, else parameter/default value, else 0.0
-        for input_name in self.inputs:
-            if t is not None and hasattr(self, 'forcing_functions') and input_name in self.forcing_functions:
-                context[input_name] = self.forcing_functions[input_name](t)
-            elif input_name in self.parameters:
-                context[input_name] = jnp.asarray(self.parameters[input_name])
+        # Always evaluate forcing functions at t (which may be a JAX array)
+        for input_name in inputs:
+            if (forcing_functions is not None) and (input_name in forcing_functions):
+                # Evaluate the function at t (works for scalar or array t)
+                context[input_name] = forcing_functions[input_name](t)
+            elif input_name in param_names:
+                context[input_name] = context[input_name]
             else:
-                context[input_name] = jnp.asarray(0.0)
-        return expr.evaluate(**context)
+                context[input_name] = 0.0
+        # ODE right-hand sides as JAX arrays
+        dydt = [model_tree.dynamics[state].evaluate(**context) for state in state_names]
+        return context, dydt
 
-
-    def model(self, t: float, y: jnp.ndarray, args: tuple[jnp.ndarray, ...]) -> jnp.ndarray:
-        """
-        ODE right-hand side function for use with JAX-based solvers (e.g., diffrax).
-        Computes the time derivatives for the system of ODEs using the current state and parameters.
-
-        Args:
-            t: Current time (ignored for autonomous systems, but required by diffrax signature).
-            y: Current state vector (JAX array).
-            args: Tuple containing parameter values as a JAX array.
-
-        Returns:
-            JAX array of time derivatives for each state variable.
-        """
-        param_vals = args[0]
-        # Build all_vars: state, param, calc (in order)
-        all_vars = y
-        all_vars = jnp.concatenate([all_vars, param_vals])
-        # Compute calculated variables in order, using context with forcing functions at time t
-        for name in self.calc_names:
-            expr = self.model_tree.dynamic_calcs[name]
-            val = self.evaluate_expression(expr, all_vars, t=t)
-            all_vars = jnp.concatenate([all_vars, jnp.atleast_1d(val)])
-        # Evaluate ODEs, passing t so input variables use forcing functions if assigned
-        dydt = [
-            self.evaluate_expression(self.model_tree.dynamics[state], all_vars, t=t)
-            for state in self.state_names
-        ]
+    @staticmethod
+    @jax.jit
+    def model(t, y, param_vals):
+        # All static data is closed over in the closure
+        all_vars = jnp.concatenate([y, param_vals])
+        _, dydt = JaxModel._build_context_and_dydt(
+            all_vars, t, JaxModel._forcing_functions, JaxModel._model_tree, JaxModel._state_names, JaxModel._param_names, JaxModel._calc_names, JaxModel._inputs
+        )
         return jnp.stack(dydt)
 
-    def run_model(self, times: Sequence[int, float]) -> ComputedModel:
-        """
-        Solve the ODE system using diffrax (JAX backend) and return a ComputedModel, including calculated dynamics.
-        """
-        ode_term = diffrax.ODETerm(self.model)
-        t0 = times[0]
-        t_end = times[-1]
-        y_init = jnp.array([self.Y0[state] for state in self.dep_var_names])
-        param_vals = jnp.array([self.parameters[name] for name in self.param_names])
+    def run_model(self, times: Sequence[int | float]) -> ComputedModel:
+        t0 = float(times[0])
+        t_end = float(times[-1])
+        y_init = jnp.asarray([self.Y0[state] for state in self.dep_var_names], dtype=jnp.float32)
+        param_vals = jnp.asarray([self.parameters[name] for name in self.param_names], dtype=jnp.float32)
+        calc_names = self.calc_names
+        model_tree = self.model_tree
+        forcing_functions = None
+        if hasattr(self, 'forcing_functions'):
+            # Do not wrap or convert t; forcing functions must be JAX-traceable and accept JAX scalars/arrays
+            forcing_functions = dict(self.forcing_functions)
+        state_names = self.state_names
+        param_names = self.param_names
+        inputs = self.inputs
+        # Set static data as class attributes for closure
+        # By assigning to class attributes, we ensure they are 
+        # accessible in the JAX jit-compiled function
+        JaxModel._forcing_functions = forcing_functions
+        JaxModel._model_tree = model_tree
+        JaxModel._state_names = state_names
+        JaxModel._param_names = param_names
+        JaxModel._calc_names = calc_names
+        JaxModel._inputs = inputs
+        @jax.jit
+        def ode_rhs(t, y, args):
+            return JaxModel.model(t, y, args[0])
+        ode_term = diffrax.ODETerm(ode_rhs)
         solver = diffrax.Dopri8()
         saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t_end, len(times)))
         sol = diffrax.diffeqsolve(
-            ode_term, solver, t0=t0, t1=t_end, dt0=0.1, y0=y_init, saveat=saveat, args=(param_vals,)
+            ode_term, solver, t0=t0, t1=t_end, dt0=0.01, y0=y_init, saveat=saveat, args=(param_vals,)
         )
-        self.sol = sol  # Store the raw solution with JaxModel
-
-        # Calculate the addtional dynamic variables (TODO: only variables in MCSim Outputs section)
-        calc_names = list(self.model_tree.dynamic_calcs.keys())
-        calc_dyn = np.zeros((sol.ts.shape[0], len(calc_names)))
-        for i, t in enumerate(sol.ts):
-            # Build all_vars as in JaxModel
-            state_vals = sol.ys[i]
-            param_vals = np.array([self.parameters[name] for name in self.parameters])
-            all_vars = np.concatenate([state_vals, param_vals])
-            for k, cname in enumerate(calc_names):
-                expr = self.model_tree.dynamic_calcs[cname]
-                calc_dyn[i, k] = float(self.evaluate_expression(expr, all_vars))
-
-        # Convert to numpy arrays when in ComputedModel
+        self.sol = sol
+        # Vectorized calculation of calculated variables using JAX
+        @jax.jit
+        def calc_dyn_single(state_vals, t):
+            # state_vals: shape (n_states,)
+            # t: scalar
+            param_vals = jnp.asarray([self.parameters[name] for name in self.param_names], dtype=jnp.float32)
+            all_vars = jnp.concatenate([state_vals, param_vals])
+            context, _ = JaxModel._build_context_and_dydt(
+                all_vars, t, forcing_functions, model_tree, state_names, param_names, calc_names, inputs
+            )
+            # Return all calculated variables in order
+            return jnp.array([context[cname] for cname in calc_names], dtype=jnp.float32)
+        # Vectorize over all time points
+        calc_dyn_jax = jax.vmap(calc_dyn_single, in_axes=(0, 0))(sol.ys, sol.ts)
+        calc_dyn = np.asarray(calc_dyn_jax)
         return ComputedModel(
             times=np.asarray(sol.ts),
-            states=np.asarray(sol.ys),  # shape (n_times, n_states)
+            states=np.asarray(sol.ys),
             var_names=self.dep_var_names,
             aux_outputs=calc_dyn,
             aux_names=calc_names,
@@ -461,7 +454,7 @@ class ScipyModel(OdeModel):
         Initialize a ScipyModel from a model string or file.
 
         Args:
-            model: Path to model file or model string.
+            model: Path to model or model string.
         """
         super().__init__(model=model)
     
