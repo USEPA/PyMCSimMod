@@ -1,4 +1,3 @@
-import operator
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from pathlib import Path
@@ -15,11 +14,8 @@ from pydantic import BaseModel
 from pymcsimmod.extra_typing import NumericArray
 
 from .model import (
-    Identifier,
+    Approach,
     MathematicalExpression,
-    Number,
-    ParenthesizedExpression,
-    SignedExpression,
 )
 from .parser import ModelParser
 
@@ -295,9 +291,8 @@ class JaxModel(OdeModel):
         Returns:
             Evaluated value as a JAX array or scalar.
         """
-        context = {name:all_vars[i] for name,i in self.all_var_indices.items()}
-        return expr.evaluate(**context)
-
+        context = {name: all_vars[i] for name, i in self.all_var_indices.items()}
+        return expr.evaluate(context, Approach.JAX)
 
     def model(self, t: float, y: jnp.ndarray, args: tuple[jnp.ndarray, ...]) -> jnp.ndarray:
         """
@@ -418,7 +413,7 @@ class ScipyModel(OdeModel):
             Evaluated value as a float or int.
         """
 
-        return expr.evaluate(**context)
+        return expr.evaluate(context, Approach.SCIPY)
 
     def run_model(self, times: Sequence[int, float]) -> ComputedModel:
         """
