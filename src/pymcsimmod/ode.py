@@ -15,7 +15,7 @@ from pymcsimmod.extra_typing import NumericArray
 
 from .model import (
     Approach,
-    MathematicalExpression,
+    Expression,
 )
 from .parser import ModelParser
 
@@ -277,9 +277,7 @@ class JaxModel(OdeModel):
         self.all_var_names = self.state_names + self.param_names + self.calc_names
         self.all_var_indices = {name: i for i, name in enumerate(self.all_var_names)}
 
-    def evaluate_expression(
-        self, expr: MathematicalExpression, all_vars: jnp.ndarray
-    ) -> jnp.ndarray:
+    def evaluate_expression(self, expr: Expression, all_vars: jnp.ndarray) -> jnp.ndarray:
         """
         Recursively evaluate an expression using the provided flat JAX array of variables.
         Handles all supported expression types for JAX-based ODE models.
@@ -291,7 +289,8 @@ class JaxModel(OdeModel):
         Returns:
             Evaluated value as a JAX array or scalar.
         """
-        context = {name: all_vars[i] for name, i in self.all_var_indices.items()}
+        all_index_vars = {v: k for k, v in self.all_var_indices.items()}
+        context = {all_index_vars[i]: all_vars[i] for i in range(len(all_vars))}
         return expr.evaluate(context, Approach.JAX)
 
     def model(self, t: float, y: jnp.ndarray, args: tuple[jnp.ndarray, ...]) -> jnp.ndarray:
@@ -398,9 +397,7 @@ class ScipyModel(OdeModel):
             dydt.append(val)
         return np.array(dydt)
 
-    def evaluate_expression(
-        self, expr: MathematicalExpression, context: dict[str, float | int]
-    ) -> float | int:
+    def evaluate_expression(self, expr: Expression, context: dict[str, float | int]) -> float | int:
         """
         Recursively evaluate an expression using the provided context dictionary.
         Handles all supported expression types for SciPy-based ODE models.
