@@ -3,17 +3,17 @@ from pydantic import TypeAdapter
 
 from .lexer import ModelLexer
 from .model import (
-    BetaRandomFunction,
     Condition,
     DtVariable,
     Identifier,
     MathematicalExpression,
+    MathematicalFunction,
     Model,
     Number,
     ParenthesizedExpression,
-    PowFunction,
     Section,
     SignedExpression,
+    SpecialFunction,
     Statement,
     TernaryExpression,
 )
@@ -142,11 +142,11 @@ class ModelParser:
 
     def p_mathematical_function(self, p):
         "mathematical_function : POW LPAREN expression COMMA expression RPAREN"
-        p[0] = PowFunction(func=p[1], args=[p[3], p[5]])
+        p[0] = MathematicalFunction(func=p[1], args=[p[3], p[5]])
 
     def p_special_function(self, p):
         "special_function : BETA_RANDOM LPAREN expression COMMA expression COMMA expression COMMA expression RPAREN"
-        p[0] = BetaRandomFunction(func=p[1], args=[p[3], p[5], p[7], p[9]])
+        p[0] = SpecialFunction(func=p[1], args=[p[3], p[5], p[7], p[9]])
 
     def p_number(self, p):
         """number : INTEGER
