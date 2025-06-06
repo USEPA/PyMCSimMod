@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 import diffrax
+import equinox as eqx
 import jax.numpy as jnp
 import jax
 import matplotlib.pyplot as plt
@@ -283,6 +284,156 @@ class OdeModel(ABC):
         """
         raise NotImplementedError("This method should be implemented in a subclass.")
 
+class JaxModelEqx(eqx.Module):
+    parameters: dict = eqx.field()
+    Y0: dict = eqx.field()
+    state_names: list = eqx.field()
+    param_names: list = eqx.field()
+    calc_names: list = eqx.field()
+    inputs: list = eqx.field()
+    model_tree: object = eqx.static_field()
+    forcing_functions: dict = eqx.field()
+
+    @staticmethod
+    def from_model(model: str | Path):
+        model_str = model.read_text() if isinstance(model, Path) else model
+        parser = ModelParser()
+        parsed_model = parser.parse(model_str)
+        model_tree = parsed_model.model_copy()
+        parameters = dict(model_tree.parameters)
+        Y0 = dict(model_tree.Y0)
+        state_names = list(Y0.keys())
+        param_names = list(parameters.keys())
+        calc_names = list(model_tree.dynamic_calcs.keys())
+        inputs = list(parsed_model.inputs)
+        return JaxModelEqx(
+            parameters=parameters,
+            Y0=Y0,
+            state_names=state_names,
+            param_names=param_names,
+            calc_names=calc_names,
+            inputs=inputs,
+            model_tree=model_tree,
+            forcing_functions={},
+        )
+
+    def update_constants(self, **parameters: float | int):
+        missing = [key for key in parameters if key not in self.parameters]
+        if missing:
+            raise KeyError(f"Parameter(s) '{', '.join(missing)}' do not exist in the model tree.")
+        new_params = self.parameters.copy()
+        new_params.update(parameters)
+        return eqx.tree_at(lambda m: m.parameters, self, replace=new_params)
+
+    def update_Y0(self, **Y0: float | int):
+        missing = [key for key in Y0 if key not in self.Y0]
+        if missing:
+            raise KeyError(f"Initial condition(s) '{', '.join(missing)}' do not exist in the model tree.")
+        new_Y0 = self.Y0.copy()
+        new_Y0.update(Y0)
+        return eqx.tree_at(lambda m: m.Y0, self, replace=new_Y0)
+
+    def assign_forcing_function(self, input_name, forcing_function_name, *args, **kwargs):
+        """
+        Assign a forcing function to a single input variable.
+        This replaces the entire forcing_functions dict with a new one containing the updated function for the given input.
+        """
+        if input_name not in self.inputs:
+            raise ValueError(f"'{input_name}' is not a valid input variable. Valid inputs: {self.inputs}")
+        func_factory = getattr(self, forcing_function_name, None)
+        if func_factory is None or not callable(func_factory):
+            raise AttributeError(f"Forcing function '{forcing_function_name}' not found in JaxModelEqx.")
+        # Only update the single input, replacing the entire dict
+        new_ff = {**self.forcing_functions, input_name: func_factory(*args, **kwargs)}
+        return eqx.tree_at(lambda m: m.forcing_functions, self, replace=new_ff)
+
+    @staticmethod
+    def OnOff(t, t0, t1, s=10.0):
+        t = jnp.asarray(t)
+        t0 = jnp.asarray(t0)
+        t1 = jnp.asarray(t1)
+        return (jnp.tanh(s * (t - t0)) - jnp.tanh(s * (t - t1))) / 2
+
+    @staticmethod
+    def PerDose(t0, duration, period, s=10.0):
+        t0 = float(t0)
+        duration = float(duration)
+        period = float(period)
+        def func(t):
+            t = jnp.asarray(t)
+            n = jnp.floor((t - t0) / period)
+            start = t0 + n * period
+            stop = start + duration
+            return JaxModelEqx.OnOff(t, start, stop, s)
+        return func
+
+    @staticmethod
+    def NDoses(t0_list, duration, s=10.0):
+        t0_arr = jnp.array(t0_list)
+        duration = float(duration)
+        def func(t):
+            t = jnp.asarray(t)
+            return jnp.sum(JaxModelEqx.OnOff(t, t0_arr, t0_arr + duration, s), axis=-1)
+        return func
+
+    def _build_context_and_dydt(self, all_vars, t):
+        context = {}
+        idx = 0
+        for name in self.state_names:
+            context[name] = all_vars[idx]
+            idx += 1
+        for name in self.param_names:
+            context[name] = all_vars[idx]
+            idx += 1
+        for name in self.calc_names:
+            expr_calc = self.model_tree.dynamic_calcs[name]
+            context[name] = expr_calc.evaluate(**context)
+            idx += 1
+        for input_name in self.inputs:
+            if (self.forcing_functions is not None) and (input_name in self.forcing_functions):
+                context[input_name] = self.forcing_functions[input_name](t)
+            elif input_name in self.param_names:
+                context[input_name] = context[input_name]
+            else:
+                context[input_name] = 0.0
+        dydt = [self.model_tree.dynamics[state].evaluate(**context) for state in self.state_names]
+        return context, dydt
+
+    def model(self, t, y, param_vals):
+        all_vars = jnp.concatenate([y, param_vals])
+        _, dydt = self._build_context_and_dydt(all_vars, t)
+        return jnp.stack(dydt)
+
+    def run_model(self, times: Sequence):
+        t0 = float(times[0])
+        t_end = float(times[-1])
+        y_init = jnp.asarray([self.Y0[state] for state in self.state_names], dtype=jnp.float32)
+        param_vals = jnp.asarray([self.parameters[name] for name in self.param_names], dtype=jnp.float32)
+        @jax.jit
+        def ode_rhs(t, y, args):
+            return self.model(t, y, args[0])
+        ode_term = diffrax.ODETerm(ode_rhs)
+        solver = diffrax.Dopri8()
+        saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t_end, len(times)))
+        sol = diffrax.diffeqsolve(
+            ode_term, solver, t0=t0, t1=t_end, dt0=0.01, y0=y_init, saveat=saveat, args=(param_vals,)
+        )
+        #self.sol = sol
+        @jax.jit
+        def calc_dyn_single(state_vals, t):
+            all_vars = jnp.concatenate([state_vals, param_vals])
+            context, _ = self._build_context_and_dydt(all_vars, t)
+            return jnp.array([context[cname] for cname in self.calc_names], dtype=jnp.float32)
+        calc_dyn_jax = jax.vmap(calc_dyn_single, in_axes=(0, 0))(sol.ys, sol.ts)
+        calc_dyn = np.asarray(calc_dyn_jax)
+        return ComputedModel(
+            times=np.asarray(sol.ts),
+            states=np.asarray(sol.ys),
+            var_names=self.state_names,
+            aux_outputs=calc_dyn,
+            aux_names=self.calc_names,
+        )
+
 
 class JaxModel(OdeModel):
     def __init__(self, model: str | Path):
@@ -391,7 +542,7 @@ class JaxModel(OdeModel):
         )
         return jnp.stack(dydt)
 
-    def run_model(self, times: Sequence[int | float]) -> ComputedModel:
+    def run_model(self, times: Sequence):
         t0 = float(times[0])
         t_end = float(times[-1])
         y_init = jnp.asarray([self.Y0[state] for state in self.dep_var_names], dtype=jnp.float32)
