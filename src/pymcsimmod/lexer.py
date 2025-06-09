@@ -23,7 +23,11 @@ class ModelLexer:
         # Reserved keywords
         "dt": "DT",
         # Math functions
+        "log": "LOG",
+        "log10": "LOG10",
+        "sqrt": "SQRT",
         "pow": "POW",
+        "exp": "EXP",
         # Special functions
         "BetaRandom": "BETA_RANDOM",
     }
