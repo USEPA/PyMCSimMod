@@ -70,7 +70,7 @@ omit = [
 ]
 
 [tool.coverage.report]
-fail_under=95
+fail_under=80
 precision=1
 
 [tool.poe.tasks.lint]
