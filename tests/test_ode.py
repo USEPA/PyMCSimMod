@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 import torch
 
-from pymcsimmod.model import MathematicalExpression, Number
+from pymcsimmod.model import MathematicalExpression, MathematicalFunction, Number
 from pymcsimmod.ode import JaxModel, ScipyModel, TorchModel
 
 
@@ -20,9 +20,9 @@ def math_expr_nested():
 
 
 @pytest.fixture
-def math_expr_pow():
+def math_func_pow():
     # pow(3, 2)
-    return MathematicalExpression(operator="pow", lhs=Number(value=3), rhs=Number(value=2))
+    return MathematicalFunction(func="pow", args=[Number(value=3), Number(value=2)])
 
 
 class TestScipyModel:
@@ -88,7 +88,7 @@ class TestScipyModel:
         result = model.evaluate_expression(math_expr_nested, context)
         assert result == 14
 
-    def test_pow_mathematical_expression_eval(self, math_expr_pow):
+    def test_pow_mathematical_expression_eval(self, math_func_pow):
         model_str = """
         States = { X };
         Initialize { X = 0; }
@@ -97,7 +97,7 @@ class TestScipyModel:
         """
         model = ScipyModel(model=model_str)
         context = {}
-        result = model.evaluate_expression(math_expr_pow, context)
+        result = model.evaluate_expression(math_func_pow, context)
         assert result == 9
 
 
@@ -163,7 +163,7 @@ class TestJaxModel:
         result = model.evaluate_expression(math_expr_nested, all_vars)
         assert result == 14
 
-    def test_pow_mathematical_expression_eval(self, math_expr_pow):
+    def test_pow_mathematical_expression_eval(self, math_func_pow):
         model_str = """
         States = { X };
         Initialize { X = 0; }
@@ -172,7 +172,7 @@ class TestJaxModel:
         """
         model = JaxModel(model=model_str)
         all_vars = jnp.array([])
-        result = model.evaluate_expression(math_expr_pow, all_vars)
+        result = model.evaluate_expression(math_func_pow, all_vars)
         assert result == 9
 
 

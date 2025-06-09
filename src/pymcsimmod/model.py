@@ -1,14 +1,28 @@
 from __future__ import annotations
 
+from enum import Enum
 from typing import Annotated, Literal
 
+import jax
 from pydantic import BaseModel, Field
+from scipy import stats
+from torch import distributions
+
+
+class Approach(Enum):
+    JAX = 1
+    SCIPY = 2
+    TORCH = 3
+
 
 # Variables / Constants
 
 
 class Identifier(BaseModel):
     name: str
+
+    def evaluate(self, context, approach):
+        return context[self.name]
 
     def to_mod(self) -> str:
         return self.name
@@ -20,6 +34,13 @@ class Identifier(BaseModel):
 class DtVariable(BaseModel):
     identifier: Identifier
 
+    @property
+    def name(self):
+        return self.identifier.name
+
+    def evaluate(self, context, approach):
+        return context[self.name]
+
     def to_mod(self) -> str:
         return f"dt({self.identifier.to_mod()})"
 
@@ -29,6 +50,9 @@ Variable = Identifier | DtVariable
 
 class Number(BaseModel):
     value: int | float
+
+    def evaluate(self, context, approach):
+        return self.value
 
     def to_mod(self) -> str:
         return str(self.value)
@@ -40,29 +64,40 @@ class Number(BaseModel):
 # Mathematical functions
 
 
-class PowFunction(BaseModel):
-    func: Literal["pow"] = "pow"
+class MathematicalFunction(BaseModel):
+    func: Literal["pow"]
     args: list[Expression]
 
+    def evaluate(self, context, approach):
+        args = [arg.evaluate(context, approach) for arg in self.args]
+        if self.func == "pow":
+            return pow(*args)
+
     def to_mod(self) -> str:
-        return f"""pow({", ".join(arg.to_mod() for arg in self.args)})"""
-
-
-MathematicalFunction = PowFunction
+        return f"""{self.func}({", ".join(arg.to_mod() for arg in self.args)})"""
 
 
 # Special functions
 
 
-class BetaRandomFunction(BaseModel):
-    func: Literal["BetaRandom"] = "BetaRandom"
+class SpecialFunction(BaseModel):
+    func: Literal["BetaRandom"]
     args: list[Expression]
 
+    def evaluate(self, context, approach):
+        args = [arg.evaluate(context, approach) for arg in self.args]
+        if self.func == "BetaRandom":
+            alpha, beta, a, b = args
+            if approach == Approach.JAX:
+                key = jax.random.PRNGKey(0)
+                return jax.random.beta(key, a, b, shape=(alpha, beta))
+            elif approach == Approach.SCIPY:
+                return stats.beta.rvs(a, b, size=(alpha, beta))
+            elif approach == Approach.TORCH:
+                return distributions.Beta(a, b).sample((alpha, beta))
+
     def to_mod(self) -> str:
-        return f"""BetaRandom({", ".join(arg.to_mod() for arg in self.args)})"""
-
-
-SpecialFunction = BetaRandomFunction
+        return f"""{self.func}({", ".join(arg.to_mod() for arg in self.args)})"""
 
 
 # Expressions
@@ -71,22 +106,41 @@ SpecialFunction = BetaRandomFunction
 class ParenthesizedExpression(BaseModel):
     expression: Expression
 
+    def evaluate(self, context, approach):
+        return self.expression.evaluate(context, approach)
+
     def to_mod(self) -> str:
         return f"({self.expression.to_mod()})"
 
 
 class MathematicalExpression(BaseModel):
-    operator: str
+    operator: Literal["+", "-", "*", "/"]
     lhs: Expression
     rhs: Expression
+
+    def evaluate(self, context, approach):
+        if self.operator == "+":
+            return self.lhs.evaluate(context, approach) + self.rhs.evaluate(context, approach)
+        if self.operator == "-":
+            return self.lhs.evaluate(context, approach) - self.rhs.evaluate(context, approach)
+        if self.operator == "*":
+            return self.lhs.evaluate(context, approach) * self.rhs.evaluate(context, approach)
+        if self.operator == "/":
+            return self.lhs.evaluate(context, approach) / self.rhs.evaluate(context, approach)
 
     def to_mod(self) -> str:
         return f"{self.lhs.to_mod()} {self.operator} {self.rhs.to_mod()}"
 
 
 class SignedExpression(BaseModel):
-    sign: str
+    sign: Literal["+", "-"]
     expression: Variable | Number | ParenthesizedExpression
+
+    def evaluate(self, context, approach):
+        if self.sign == "+":
+            return self.expression.evaluate(context, approach)
+        if self.sign == "-":
+            return -self.expression.evaluate(context, approach)
 
     def to_mod(self) -> str:
         return f"{self.sign}{self.expression.to_mod()}"
@@ -97,9 +151,23 @@ class SignedExpression(BaseModel):
 
 
 class Condition(BaseModel):
-    operator: str
+    operator: Literal["==", "!=", "<", ">", "<=", ">="]
     lhs: Expression
     rhs: Expression
+
+    def evaluate(self, context, approach):
+        if self.operator == "==":
+            return self.lhs.evaluate(context, approach) == self.rhs.evaluate(context, approach)
+        if self.operator == "!=":
+            return self.lhs.evaluate(context, approach) != self.rhs.evaluate(context, approach)
+        if self.operator == "<":
+            return self.lhs.evaluate(context, approach) < self.rhs.evaluate(context, approach)
+        if self.operator == ">":
+            return self.lhs.evaluate(context, approach) > self.rhs.evaluate(context, approach)
+        if self.operator == "<=":
+            return self.lhs.evaluate(context, approach) <= self.rhs.evaluate(context, approach)
+        if self.operator == ">=":
+            return self.lhs.evaluate(context, approach) >= self.rhs.evaluate(context, approach)
 
     def to_mod(self) -> str:
         return f"{self.lhs.to_mod()} {self.operator} {self.rhs.to_mod()}"
@@ -109,6 +177,13 @@ class TernaryExpression(BaseModel):
     condition: Condition
     if_true: Expression
     if_false: Expression
+
+    def evaluate(self, context, approach):
+        return (
+            self.if_true.evaluate(context, approach)
+            if self.condition.evaluate(context, approach)
+            else self.if_false.evaluate(context, approach)
+        )
 
     def to_mod(self) -> str:
         return f"{self.condition.to_mod()} ? {self.if_true.to_mod()} : {self.if_false.to_mod()}"
@@ -131,6 +206,10 @@ Expression = (
 class Statement(BaseModel):
     lhs: Variable
     rhs: Expression
+
+    @property
+    def dynamic(self):
+        return isinstance(self.lhs, DtVariable)
 
     def to_mod(self) -> str:
         return f"{self.lhs.to_mod()} = {self.rhs.to_mod()};"
@@ -184,6 +263,15 @@ class DynamicsSection(BaseModel):
     type: Literal["Dynamics"] = "Dynamics"
     statements: list[Statement]
 
+    def get_dynamics(self, context, approach):
+        dynamics = []
+        for statement in self.statements:
+            if statement.dynamic:
+                dynamics.append(statement.rhs.evaluate(context, approach))
+            else:
+                context[statement.lhs.name] = statement.rhs.evaluate(context, approach)
+        return dynamics
+
     def to_mod(self) -> str:
         return f"""Dynamics {{\n{"\n".join(f"    {statement.to_mod()}" for statement in self.statements)}\n}}"""
 
@@ -218,6 +306,10 @@ Section = Annotated[
 
 class Model(BaseModel):
     sections: list[Section | Statement]
+
+    @property
+    def dynamics_section(self):
+        return next((_ for _ in self.sections if isinstance(_, DynamicsSection)), None)
 
     def to_mod(self) -> str:
         return f"""{"\n".join(section.to_mod() for section in self.sections)}\nEnd."""
