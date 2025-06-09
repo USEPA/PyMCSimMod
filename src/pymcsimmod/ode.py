@@ -449,30 +449,16 @@ class TorchNNModel(torch.nn.Module):
 
         # Compute dynamic_calcs (e.g., C) and store them in context
         for var, expr in self.model_tree.dynamic_calcs.items():
-            context[var] = self.evaluate_expression(expr, context)
+            context[var] = expr.evaluate(context, Approach.TORCH)
 
         # Compute dydt, using context (which now includes calc vars)
         dydt = []
         for state in self.dep_var_names:
             expr = self.model_tree.dynamics[state]
-            val = self.evaluate_expression(expr, context)
+            val = expr.evaluate(context, Approach.TORCH)
             dydt.append(val)
 
         return torch.stack(dydt)
-
-    def evaluate_expression(self, expr: Expression, context: dict[str, float | int]) -> float | int:
-        """
-        Recursively evaluate an expression using the provided context dictionary.
-        Handles all supported expression types for SciPy-based ODE models.
-
-        Args:
-            expr: Expression node to evaluate.
-            context: Dictionary mapping variable names to their current values.
-
-        Returns:
-            Evaluated value as a float or int.
-        """
-        return expr.evaluate(context, Approach.TORCH)
 
 
 class TorchModel(OdeModel):
@@ -484,18 +470,7 @@ class TorchModel(OdeModel):
         )
 
     def evaluate_expression(self, expr: Expression, context: dict[str, float | int]) -> float | int:
-        """
-        Recursively evaluate an expression using the provided context dictionary.
-        Handles all supported expression types for SciPy-based ODE models.
-
-        Args:
-            expr: Expression node to evaluate.
-            context: Dictionary mapping variable names to their current values.
-
-        Returns:
-            Evaluated value as a float or int.
-        """
-        return expr.evaluate(context, Approach.TORCH)
+        raise NotImplementedError("Not needed")  # TODO - remove from base class - no longer needed?
 
     def run_model(self, times: Sequence[int | float]) -> ComputedModel:
         model = self.model()
@@ -516,7 +491,7 @@ class TorchModel(OdeModel):
             context.update({name: np_sol[i, j] for j, name in enumerate(self.dep_var_names)})
             for j, cname in enumerate(calc_names):
                 expr = self.model_tree.dynamic_calcs[cname]
-                calc_dyn[i, j] = self.evaluate_expression(expr, context)
+                calc_dyn[i, j] = expr.evaluate(context, Approach.TORCH)
 
         return ComputedModel(
             times=times.numpy(),
