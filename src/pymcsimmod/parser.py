@@ -141,8 +141,12 @@ class ModelParser:
         p[0] = MathematicalExpression(operator=p[2], lhs=p[1], rhs=p[3])
 
     def p_mathematical_function(self, p):
-        "mathematical_function : POW LPAREN expression COMMA expression RPAREN"
-        p[0] = MathematicalFunction(func=p[1], args=[p[3], p[5]])
+        """mathematical_function : LOG LPAREN expression RPAREN
+        | LOG10 LPAREN expression RPAREN
+        | SQRT LPAREN expression RPAREN
+        | POW LPAREN expression COMMA expression RPAREN
+        | EXP LPAREN expression RPAREN"""
+        p[0] = MathematicalFunction(func=p[1], args=p[3::2])
 
     def p_special_function(self, p):
         "special_function : BETA_RANDOM LPAREN expression COMMA expression COMMA expression COMMA expression RPAREN"
