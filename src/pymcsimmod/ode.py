@@ -8,15 +8,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scipy.integrate as sci
+import torch
+import torchdiffeq
 from matplotlib.axes import Axes
 from pydantic import BaseModel
 
-from pymcsimmod.extra_typing import NumericArray
-
-from .model import (
-    Approach,
-    Expression,
-)
+from .extra_typing import NumericArray
+from .model import Approach, Expression
 from .parser import ModelParser
 
 
@@ -322,7 +320,7 @@ class JaxModel(OdeModel):
         ]
         return jnp.stack(dydt)
 
-    def run_model(self, times: Sequence[int, float]) -> ComputedModel:
+    def run_model(self, times: Sequence[int | float]) -> ComputedModel:
         """
         Solve the ODE system using diffrax (JAX backend) and return a ComputedModel, including calculated dynamics.
         """
@@ -361,15 +359,6 @@ class JaxModel(OdeModel):
 
 
 class ScipyModel(OdeModel):
-    def __init__(self, model: str | Path):
-        """
-        Initialize a ScipyModel from a model string or file.
-
-        Args:
-            model: Path to model file or model string.
-        """
-        super().__init__(model=model)
-
     def model(self, t: float, y: np.ndarray, args: None = None) -> np.ndarray:
         """
         ODE right-hand side function for use with scipy.integrate.solve_ivp.
@@ -409,10 +398,9 @@ class ScipyModel(OdeModel):
         Returns:
             Evaluated value as a float or int.
         """
-
         return expr.evaluate(context, Approach.SCIPY)
 
-    def run_model(self, times: Sequence[int, float]) -> ComputedModel:
+    def run_model(self, times: Sequence[int | float]) -> ComputedModel:
         """
         Solve the ODE system using scipy.integrate.solve_ivp and return a ComputedModel, including calculated dynamics.
         """
@@ -440,6 +428,74 @@ class ScipyModel(OdeModel):
         return ComputedModel(
             times=sol.t,
             states=sol.y.T,  # shape (n_times, n_states)
+            var_names=self.dep_var_names,
+            aux_outputs=calc_dyn,
+            aux_names=calc_names,
+        )
+
+
+class TorchNNModel(torch.nn.Module):
+    # Lotka-Volterra Predator-Prey Model
+    def __init__(self, dep_var_names, model_tree, parameters):
+        super().__init__()
+        self.dep_var_names = dep_var_names
+        self.model_tree = model_tree
+        self.parameters = parameters
+
+    def forward(self, t, y):
+        # Build context: state variables, parameters, and calculated variables
+        context = {name: y[i] for i, name in enumerate(self.dep_var_names)}
+        context.update(self.parameters)
+
+        # Compute dynamic_calcs (e.g., C) and store them in context
+        for var, expr in self.model_tree.dynamic_calcs.items():
+            context[var] = expr.evaluate(context, Approach.TORCH)
+
+        # Compute dydt, using context (which now includes calc vars)
+        dydt = []
+        for state in self.dep_var_names:
+            expr = self.model_tree.dynamics[state]
+            val = expr.evaluate(context, Approach.TORCH)
+            dydt.append(val)
+
+        return torch.stack(dydt)
+
+
+class TorchModel(OdeModel):
+    def model(self) -> TorchNNModel:
+        return TorchNNModel(
+            dep_var_names=self.dep_var_names,
+            model_tree=self.model_tree,
+            parameters=self.parameters,
+        )
+
+    def evaluate_expression(self, expr: Expression, context: dict[str, float | int]) -> float | int:
+        raise NotImplementedError("Not needed")  # TODO - remove from base class - no longer needed?
+
+    def run_model(self, times: Sequence[int | float]) -> ComputedModel:
+        model = self.model()
+        y0 = torch.tensor(list(self.Y0.values()))
+        if not isinstance(times, torch.Tensor):
+            times = torch.tensor(times)
+        with torch.no_grad():
+            sol = torchdiffeq.odeint(model, y0, times)
+
+        # Calculate the additional dynamic variables (TODO: only variables in MCSim Outputs section)
+        calc_names = list(self.model_tree.dynamic_calcs.keys())
+        n_times = times.shape[0]
+        n_calcs = len(calc_names)
+        calc_dyn = np.zeros((n_times, n_calcs))
+        context = self.parameters.copy()
+        np_sol = sol.numpy()
+        for i in range(n_times):
+            context.update({name: np_sol[i, j] for j, name in enumerate(self.dep_var_names)})
+            for j, cname in enumerate(calc_names):
+                expr = self.model_tree.dynamic_calcs[cname]
+                calc_dyn[i, j] = expr.evaluate(context, Approach.TORCH)
+
+        return ComputedModel(
+            times=times.numpy(),
+            states=sol.numpy(),
             var_names=self.dep_var_names,
             aux_outputs=calc_dyn,
             aux_names=calc_names,

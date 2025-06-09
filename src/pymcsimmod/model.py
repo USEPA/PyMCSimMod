@@ -7,11 +7,13 @@ from typing import Annotated, Literal
 import jax
 from pydantic import BaseModel, Field
 from scipy import stats
+from torch import distributions
 
 
 class Approach(Enum):
     JAX = 1
     SCIPY = 2
+    TORCH = 3
 
 
 # Variables / Constants
@@ -98,8 +100,10 @@ class SpecialFunction(BaseModel):
             if approach == Approach.JAX:
                 key = jax.random.PRNGKey(0)
                 return jax.random.beta(key, a, b, shape=(alpha, beta))
-            if approach == Approach.SCIPY:
+            elif approach == Approach.SCIPY:
                 return stats.beta.rvs(a, b, size=(alpha, beta))
+            elif approach == Approach.TORCH:
+                return distributions.Beta(a, b).sample((alpha, beta))
 
     def to_mod(self) -> str:
         return f"""{self.func}({", ".join(arg.to_mod() for arg in self.args)})"""
