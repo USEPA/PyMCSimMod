@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from enum import Enum
 from typing import Annotated, Literal
 
@@ -63,13 +64,21 @@ class Number(BaseModel):
 
 
 class MathematicalFunction(BaseModel):
-    func: Literal["pow"]
+    func: Literal["log", "log10", "sqrt", "pow", "exp"]
     args: list[Expression]
 
     def evaluate(self, context, approach):
         args = [arg.evaluate(context, approach) for arg in self.args]
+        if self.func == "log":
+            return math.log(*args)
+        if self.func == "log10":
+            return math.log10(*args)
+        if self.func == "sqrt":
+            return math.sqrt(*args)
         if self.func == "pow":
-            return pow(*args)
+            return math.pow(*args)
+        if self.func == "exp":
+            return math.exp(*args)
 
     def to_mod(self) -> str:
         return f"""{self.func}({", ".join(arg.to_mod() for arg in self.args)})"""
