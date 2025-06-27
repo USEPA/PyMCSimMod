@@ -430,6 +430,22 @@ class JaxModelEqx(eqx.Module):
             aux_names=self.calc_names,
         )
 
+class EqxModel(eqx.Module):
+    context: dict = eqx.field()
+    model_tree: object = eqx.static_field()
+    forcing_functions: dict = eqx.field()
+    Y0: dict = eqx.field()
+    state_names: list = eqx.field()
+
+    def model(self, t, y):
+        dydt = []
+        for state in self.dep_var_names:
+            expr = self.model_tree.dynamics[state]
+            val = self.evaluate_expression(expr, self.context)
+            dydt.append(val)
+
+    def run_model(self, t, y):
+        pass
 
 class JaxModel(OdeModel):
     def __init__(self, model: str | Path):
@@ -450,6 +466,35 @@ class JaxModel(OdeModel):
         self.all_var_names = self.state_names + self.param_names + self.calc_names
         self.all_var_indices = {name: i for i, name in enumerate(self.all_var_names)}
 
+    @staticmethod
+    def OnOff(t, t0, t1, s=10.0):
+        t = jnp.asarray(t)
+        t0 = jnp.asarray(t0)
+        t1 = jnp.asarray(t1)
+        return (jnp.tanh(s * (t - t0)) - jnp.tanh(s * (t - t1))) / 2
+
+    @staticmethod
+    def PerDose(t0, duration, period, s=10.0):
+        t0 = float(t0)
+        duration = float(duration)
+        period = float(period)
+        def func(t):
+            t = jnp.asarray(t)
+            n = jnp.floor((t - t0) / period)
+            start = t0 + n * period
+            stop = start + duration
+            return JaxModelEqx.OnOff(t, start, stop, s)
+        return func
+
+    @staticmethod
+    def NDoses(t0_list, duration, s=10.0):
+        t0_arr = jnp.array(t0_list)
+        duration = float(duration)
+        def func(t):
+            t = jnp.asarray(t)
+            return jnp.sum(JaxModelEqx.OnOff(t, t0_arr, t0_arr + duration, s), axis=-1)
+        return func
+    
     def evaluate_expression(self, expr: Expression, all_vars: jnp.ndarray) -> jnp.ndarray:
         """
         Recursively evaluate an expression using the provided flat JAX array of variables.
@@ -533,6 +578,18 @@ class JaxModel(OdeModel):
             aux_names=calc_names,
         )
 
+    def to_model(self):
+        """
+        Return an EqxModel object initialized from this JaxModel instance.
+        The context is a copy of self.parameters.
+        """
+        return EqxModel(
+            context=self.parameters.copy(),
+            model_tree=self.model_tree,
+            forcing_functions=getattr(self, 'forcing_functions', {}),
+            Y0=self.Y0.copy(),
+            state_names=self.state_names.copy(),
+        )
 
 class ScipyModel(OdeModel):
     def __init__(self, model: str | Path):
