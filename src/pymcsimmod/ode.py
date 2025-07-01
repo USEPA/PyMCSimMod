@@ -450,8 +450,9 @@ class EqxModel(eqx.Module):
             context[var] = expr.evaluate(context, Approach.JAX)
 
         # Evaluate any calculated outputs if needed
-        for var, expr in self.model_tree.calc_outputs.items():
-            context[var] = expr.evaluate(context, Approach.JAX)
+        if hasattr(self.model_tree, 'calc_outputs'):
+            for var, expr in self.model_tree.calc_outputs.items():
+                context[var] = expr.evaluate(context, Approach.JAX)
         return context
     
     def model(self, t, y):
@@ -610,30 +611,31 @@ class ScipyModel(OdeModel):
             return sum(ScipyModel.OnOff(t, t0, t0 + duration) for t0 in t0_list)
         return func
 
+    def build_context(self, state_vals, t):
+        """
+        Build the context dictionary for a given state vector and time.
+        Includes state variables, parameters, forcing functions, and dynamic calcs/outputs.
+        SciPy/NumPy compatible (not JAX).
+        """
+        context = {name: state_vals[i] for i, name in enumerate(self.state_names)}
+        context.update(self.parameters)
+        for input_name, func in self.forcing_functions.items():
+            context[input_name] = func(t)
+        # Evaluate all dynamic calcs (needed for outputs or ODEs)
+        for var, expr in self.model_tree.dynamic_calcs.items():
+            context[var] = expr.evaluate(context, Approach.SCIPY)
+        # Evaluate any calculated outputs if needed
+        if hasattr(self.model_tree, 'calc_outputs'):
+            for var, expr in self.model_tree.calc_outputs.items():
+                context[var] = expr.evaluate(context, Approach.SCIPY)
+        return context
+
     def model(self, t: float, y: np.ndarray, args: None = None) -> np.ndarray:
         """
         ODE right-hand side function for use with scipy.integrate.solve_ivp.
         Computes the time derivatives for the system of ODEs using the current state and parameters.
-
-        Args:
-            t: Current time (ignored for autonomous systems, but required by solve_ivp signature).
-            y: Current state vector (NumPy array).
-            args: Optional extra arguments (not used, included for compatibility with JAX interface).
-
-        Returns:
-            NumPy array of time derivatives for each state variable.
         """
-        # Build context: state variables, parameters, and calculated variables
-        context = {name: y[i] for i, name in enumerate(self.state_names)}
-        context.update(self.parameters)
-        # Overwrite any input variable with its forcing function if assigned
-        if hasattr(self, 'forcing_functions'):
-            for input_name, func in self.forcing_functions.items():
-                context[input_name] = func(t)
-        # Compute dynamic_calcs (e.g., C) and store them in context
-        for var, expr in self.model_tree.dynamic_calcs.items():
-            context[var] = expr.evaluate(context, Approach.SCIPY)
-        # Compute dydt, using context (which now includes calc vars)
+        context = self.build_context(y, t)
         dydt = []
         for state in self.state_names:
             expr = self.model_tree.dynamics[state]
@@ -643,7 +645,7 @@ class ScipyModel(OdeModel):
 
     def run_model(self, times: Sequence[int, float]) -> ComputedModel:
         """
-        Solve the ODE system using scipy.integrate.solve_ivp and return a ComputedModel, including calculated dynamics.
+        Solve the ODE system using scipy.integrate.solve_ivp and return a ComputedModel, including calculated outputs.
         """
         times = np.array(times)
         y_init = np.array([self.Y0[state] for state in self.state_names])
@@ -657,20 +659,23 @@ class ScipyModel(OdeModel):
         )
         self.sol = sol  # Store the raw solution with ScipyModel
 
-        # Calculate the addtional dynamic variables (TODO: only variables in MCSim Outputs section)
-        calc_names = list(self.model_tree.dynamic_calcs.keys())
-        calc_dyn = np.zeros((sol.t.shape[0], len(calc_names)))
-        for i, t in enumerate(sol.t):
-            context = {name: sol.y[:, i][j] for j, name in enumerate(self.state_names)}
-            context.update(self.parameters)
-            for k, cname in enumerate(calc_names):
-                expr = self.model_tree.dynamic_calcs[cname]
-                calc_dyn[i, k] = expr.evaluate(context, Approach.SCIPY)
+        # Vectorized calculation of outputs (from self.outputs) for each time point
+        output_names = self.outputs
+
+        def calc_outputs_single(state_vals, t):
+            context = self.build_context(state_vals, t)
+            return np.array([context[name] for name in output_names], dtype=np.float64)
+
+        # Use numpy vectorization for speed (not jax.vmap, since this is numpy/scipy)
+        calc_outputs = np.stack([
+            calc_outputs_single(sol.y[:, i], sol.t[i])
+            for i in range(sol.t.shape[0])
+        ], axis=0)
 
         return ComputedModel(
             times=sol.t,
             states=sol.y.T,  # shape (n_times, n_states)
             var_names=self.state_names,
-            aux_outputs=calc_dyn,
-            aux_names=calc_names,
+            aux_outputs=calc_outputs,
+            aux_names=output_names,
         )
