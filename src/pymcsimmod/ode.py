@@ -264,21 +264,6 @@ class OdeModel(ABC):
         raise NotImplementedError("This method should be implemented in a subclass.")
 
     @abstractmethod
-    def evaluate_expression(self, expr, y) -> object:
-        """
-        Abstract expression evaluator for subclass implementation.
-        Should recursively evaluate a parsed expression tree using the current variable context.
-
-        Args:
-            expr: Expression node to evaluate.
-            y: Variable context (array or dict, depending on backend).
-
-        Returns:
-            Evaluated value of the expression.
-        """
-        raise NotImplementedError("This method should be implemented in a subclass.")
-
-    @abstractmethod
     def run_model(self, times: Sequence) -> ComputedModel:
         """
         Abstract ODE solver runner for subclass implementation.
@@ -540,20 +525,6 @@ class JaxModel(OdeModel):
             return jnp.sum(JaxModelEqx.OnOff(t, t0_arr, t0_arr + duration, s), axis=-1)
         return func
     
-    def evaluate_expression(self, expr, y) -> object:
-        """
-        Abstract expression evaluator for subclass implementation.
-        Should recursively evaluate a parsed expression tree using the current variable context.
-
-        Args:
-            expr: Expression node to evaluate.
-            y: Variable context (array or dict, depending on backend).
-
-        Returns:
-            Evaluated value of the expression.
-        """
-        raise NotImplementedError("This method should be implemented in equinox module class.")
-    
     def model(self, t: float, y, args) -> object:
         raise NotImplementedError("This method should be implemented in equinox module class.")
 
@@ -661,29 +632,14 @@ class ScipyModel(OdeModel):
                 context[input_name] = func(t)
         # Compute dynamic_calcs (e.g., C) and store them in context
         for var, expr in self.model_tree.dynamic_calcs.items():
-            context[var] = self.evaluate_expression(expr, context)
+            context[var] = expr.evaluate(context, Approach.SCIPY)
         # Compute dydt, using context (which now includes calc vars)
         dydt = []
         for state in self.state_names:
             expr = self.model_tree.dynamics[state]
-            val = self.evaluate_expression(expr, context)
+            val = expr.evaluate(context, Approach.SCIPY)
             dydt.append(val)
         return np.array(dydt)
-
-    def evaluate_expression(self, expr: Expression, context: dict[str, float | int]) -> float | int:
-        """
-        Recursively evaluate an expression using the provided context dictionary.
-        Handles all supported expression types for SciPy-based ODE models.
-
-        Args:
-            expr: Expression node to evaluate.
-            context: Dictionary mapping variable names to their current values.
-
-        Returns:
-            Evaluated value as a float or int.
-        """
-
-        return expr.evaluate(context, Approach.SCIPY)
 
     def run_model(self, times: Sequence[int, float]) -> ComputedModel:
         """
@@ -709,7 +665,7 @@ class ScipyModel(OdeModel):
             context.update(self.parameters)
             for k, cname in enumerate(calc_names):
                 expr = self.model_tree.dynamic_calcs[cname]
-                calc_dyn[i, k] = self.evaluate_expression(expr, context)
+                calc_dyn[i, k] = expr.evaluate(context, Approach.SCIPY)
 
         return ComputedModel(
             times=sol.t,
