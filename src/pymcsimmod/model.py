@@ -344,6 +344,18 @@ class Model(BaseModel):
                 if isinstance(section, InputsSection):
                     self._inputs = [declaration.name for declaration in section.declarations]
             return self._inputs
+    
+    @property
+    def outputs(self) -> list[str]:
+        """
+        Extract outputs from the model.
+        Returns a list of output names.
+        """
+        if not hasattr(self, "_outputs"):
+            for section in self.sections:
+                if isinstance(section, OutputsSection):
+                    self._outputs = [declaration.name for declaration in section.declarations]
+            return self._outputs
 
     @property
     def Y0(self) -> dict[str, float | int]:
@@ -393,3 +405,20 @@ class Model(BaseModel):
                             dynamics_calcs[variable] = statement.rhs
             self._dynamics_calcs = dynamics_calcs
         return self._dynamics_calcs
+    
+    @property
+    def calc_outputs(self) -> dict[str, MathematicalExpression]:
+        """
+        Extract any calculations from the dynamics section from the model.
+        Returns a dictionary where keys are variable names and values are their dynamics calculations.
+        """
+        if not hasattr(self, "_calc_outputs"):
+            calc_outputs = {}
+            for section in self.sections:
+                if isinstance(section, CalcOutputsSection):
+                    for statement in section.statements:
+                        if isinstance(statement.lhs, Identifier):
+                            variable = statement.lhs.name
+                            calc_outputs[variable] = statement.rhs
+            self._calc_outputs = calc_outputs
+        return self._calc_outputs
