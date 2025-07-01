@@ -151,6 +151,15 @@ class ComputedModel(BaseModel):
 
 
 class OdeModel(ABC):
+    @staticmethod
+    def ZeroFunc():
+        """
+        Default static method for forcing functions: always returns zero for any t input.
+        """
+        def func(t):
+            return 0.0
+        return func
+
     def __init__(self, model: str | Path):
         """
         Load and parse a model from a file path or string, initializing parameters and initial conditions.
@@ -168,9 +177,12 @@ class OdeModel(ABC):
         self.calc_outputs = []  # calculated outputs from CalcOutputs Section
         self._init_parameters()
 
-        self.inputs = parsed_model.inputs  
-        self.dep_var_names = list(self.Y0.keys())
-        self.dep_var_indices = {name: i for i, name in enumerate(self.dep_var_names)}
+        self.inputs = parsed_model.inputs
+        self.outputs = parsed_model.outputs
+        self.state_names = list(self.Y0.keys())
+        self.dep_var_indices = {name: i for i, name in enumerate(self.state_names)}
+        # Assign default forcing functions: all inputs get ZeroFunc
+        self.forcing_functions = {input_name: OdeModel.ZeroFunc() for input_name in self.inputs}
 
     def _init_parameters(self) -> None:
         """
@@ -431,21 +443,63 @@ class JaxModelEqx(eqx.Module):
         )
 
 class EqxModel(eqx.Module):
-    context: dict = eqx.field()
+    parameters: dict = eqx.field() # Constants
+    forcing_functions: dict = eqx.field() # Forcing functions for inputs
+    Y0: dict = eqx.field() # State variable initial conditions
     model_tree: object = eqx.static_field()
-    forcing_functions: dict = eqx.field()
-    Y0: dict = eqx.field()
     state_names: list = eqx.field()
+    output_names: list = eqx.field() # Output variable names
 
+    def build_context(self, state_vals, t):
+        """
+        Build the context dictionary for a given state vector and time.
+        Includes state variables, parameters, forcing functions, and dynamic calcs.
+        JAX-compatible (no side effects).
+        """
+        context = {name: state_vals[i] for i, name in enumerate(self.state_names)}
+        context.update(self.parameters)
+        for input_name, func in self.forcing_functions.items():
+            context[input_name] = func(t)
+        # Evaluate all dynamic calcs (needed for outputs or ODEs)
+        for var, expr in self.model_tree.dynamic_calcs.items():
+            context[var] = expr.evaluate(context, Approach.JAX)
+
+        # Evaluate any calculated outputs if needed
+        for var, expr in self.model_tree.calc_outputs.items():
+            context[var] = expr.evaluate(context, Approach.JAX)
+        return context
+    
     def model(self, t, y):
+        context = self.build_context(y, t)
         dydt = []
-        for state in self.dep_var_names:
+        for state in self.state_names:
             expr = self.model_tree.dynamics[state]
-            val = self.evaluate_expression(expr, self.context)
+            val = expr.evaluate(context, Approach.JAX)
             dydt.append(val)
+        return jnp.stack(dydt)
 
-    def run_model(self, t, y):
-        pass
+    def run_model(self, times):
+        t0 = float(times[0])
+        t_end = float(times[-1])
+        y_init = jnp.asarray([self.Y0[state] for state in self.state_names], dtype=jnp.float32)
+        @jax.jit
+        def ode_rhs(t, y, args):
+            return self.model(t, y)
+        
+        ode_term = diffrax.ODETerm(ode_rhs)
+        solver = diffrax.Dopri8()
+        saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t_end, len(times)))
+        sol = diffrax.diffeqsolve(
+            ode_term, solver, t0=t0, t1=t_end, dt0=0.01, y0=y_init, saveat=saveat, args=()
+        )
+        #self.sol = sol
+        @jax.jit
+        def calc_outputs_single(state_vals, t):
+            context = self.build_context(state_vals, t)
+            return jnp.array([context[name] for name in self.output_names], dtype=jnp.float32)
+        calc_outputs = jax.vmap(calc_outputs_single, in_axes=(0, 0))(sol.ys, sol.ts)
+        return sol, calc_outputs
+        
 
 class JaxModel(OdeModel):
     def __init__(self, model: str | Path):
@@ -456,15 +510,6 @@ class JaxModel(OdeModel):
             model: Path to model file or model string.
         """
         super().__init__(model=model)
-        # Will be set in from_model
-        self.all_var_names = []
-        self.all_var_indices = {}
-
-        self.state_names = list(self.Y0.keys())
-        self.param_names = list(self.parameters.keys())
-        self.calc_names = list(self.model_tree.dynamic_calcs.keys())
-        self.all_var_names = self.state_names + self.param_names + self.calc_names
-        self.all_var_indices = {name: i for i, name in enumerate(self.all_var_names)}
 
     @staticmethod
     def OnOff(t, t0, t1, s=10.0):
@@ -495,100 +540,57 @@ class JaxModel(OdeModel):
             return jnp.sum(JaxModelEqx.OnOff(t, t0_arr, t0_arr + duration, s), axis=-1)
         return func
     
-    def evaluate_expression(self, expr: Expression, all_vars: jnp.ndarray) -> jnp.ndarray:
+    def evaluate_expression(self, expr, y) -> object:
         """
-        Recursively evaluate an expression using the provided flat JAX array of variables.
-        Handles all supported expression types for JAX-based ODE models.
+        Abstract expression evaluator for subclass implementation.
+        Should recursively evaluate a parsed expression tree using the current variable context.
 
         Args:
             expr: Expression node to evaluate.
-            all_vars: JAX array of all variables (state, parameters, calcs).
+            y: Variable context (array or dict, depending on backend).
 
         Returns:
-            Evaluated value as a JAX array or scalar.
+            Evaluated value of the expression.
         """
-        all_index_vars = {v: k for k, v in self.all_var_indices.items()}
-        context = {all_index_vars[i]: all_vars[i] for i in range(len(all_vars))}
-        return expr.evaluate(context, Approach.JAX)
-
-    def model(self, t: float, y: jnp.ndarray, args: tuple[jnp.ndarray, ...]) -> jnp.ndarray:
-        """
-        ODE right-hand side function for use with JAX-based solvers (e.g., diffrax).
-        Computes the time derivatives for the system of ODEs using the current state and parameters.
-
-        Args:
-            t: Current time (ignored for autonomous systems, but required by diffrax signature).
-            y: Current state vector (JAX array).
-            args: Tuple containing parameter values as a JAX array.
-
-        Returns:
-            JAX array of time derivatives for each state variable.
-        """
-        # args: tuple (param_vals,)
-        param_vals = args[0]
-        # y: state variables (jnp array)
-        all_vars = y
-        all_vars = jnp.concatenate([all_vars, param_vals])
-        # Dynamic calcs (compute in order, using current all_vars)
-        for name in self.calc_names:
-            expr = self.model_tree.dynamic_calcs[name]
-            val = self.evaluate_expression(expr, all_vars)
-            all_vars = jnp.concatenate([all_vars, jnp.atleast_1d(val)])
-        dydt = [
-            self.evaluate_expression(self.model_tree.dynamics[state], all_vars)
-            for state in self.state_names
-        ]
-        return jnp.stack(dydt)
+        raise NotImplementedError("This method should be implemented in equinox module class.")
+    
+    def model(self, t: float, y, args) -> object:
+        raise NotImplementedError("This method should be implemented in equinox module class.")
 
     def run_model(self, times: Sequence[int, float]) -> ComputedModel:
         """
         Solve the ODE system using diffrax (JAX backend) and return a ComputedModel, including calculated dynamics.
+
+        Args:
+            times: Sequence of time points at which to solve the ODE system.
+
+        Returns:
+            ComputedModel instance containing the solution.
         """
-        ode_term = diffrax.ODETerm(self.model)
-        t0 = times[0]
-        t_end = times[-1]
-        y_init = jnp.array([self.Y0[state] for state in self.dep_var_names])
-        param_vals = jnp.array([self.parameters[name] for name in self.param_names])
-        solver = diffrax.Dopri5()
-        saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t_end, len(times)))
-        sol = diffrax.diffeqsolve(
-            ode_term, solver, t0=t0, t1=t_end, dt0=0.01, y0=y_init, saveat=saveat, args=(param_vals,)
-        )
-        self.sol = sol
-        # Vectorized calculation of calculated variables using JAX
-        @jax.jit
-        def calc_dyn_single(state_vals, t):
-            # state_vals: shape (n_states,)
-            # t: scalar
-            param_vals = jnp.asarray([self.parameters[name] for name in self.param_names], dtype=jnp.float32)
-            all_vars = jnp.concatenate([state_vals, param_vals])
-            context, _ = JaxModel._build_context_and_dydt(
-                all_vars, t, forcing_functions, model_tree, state_names, param_names, calc_names, inputs
-            )
-            # Return all calculated variables in order
-            return jnp.array([context[cname] for cname in calc_names], dtype=jnp.float32)
-        # Vectorize over all time points
-        calc_dyn_jax = jax.vmap(calc_dyn_single, in_axes=(0, 0))(sol.ys, sol.ts)
-        calc_dyn = np.asarray(calc_dyn_jax)
+        eqx_model = self._to_eqx()
+        sol, calc_outputs = eqx_model.run_model(times)
         return ComputedModel(
             times=np.asarray(sol.ts),
             states=np.asarray(sol.ys),
-            var_names=self.dep_var_names,
-            aux_outputs=calc_dyn,
-            aux_names=calc_names,
+            var_names=self.state_names,
+            aux_outputs=np.asarray(calc_outputs),
+            aux_names=self.outputs,
         )
-
-    def to_model(self):
+    def _to_eqx(self):
         """
         Return an EqxModel object initialized from this JaxModel instance.
         The context is a copy of self.parameters.
+
+        All parameter updates happen prior to creating the EqxModel instance.
+        All Jax-based computation happens in EqxModel.
         """
         return EqxModel(
-            context=self.parameters.copy(),
-            model_tree=self.model_tree,
-            forcing_functions=getattr(self, 'forcing_functions', {}),
+            parameters=self.parameters.copy(),
+            forcing_functions=self.forcing_functions.copy(),
             Y0=self.Y0.copy(),
+            model_tree=self.model_tree,
             state_names=self.state_names.copy(),
+            output_names=self.outputs.copy()
         )
 
 class ScipyModel(OdeModel):
@@ -651,7 +653,7 @@ class ScipyModel(OdeModel):
             NumPy array of time derivatives for each state variable.
         """
         # Build context: state variables, parameters, and calculated variables
-        context = {name: y[i] for i, name in enumerate(self.dep_var_names)}
+        context = {name: y[i] for i, name in enumerate(self.state_names)}
         context.update(self.parameters)
         # Overwrite any input variable with its forcing function if assigned
         if hasattr(self, 'forcing_functions'):
@@ -662,7 +664,7 @@ class ScipyModel(OdeModel):
             context[var] = self.evaluate_expression(expr, context)
         # Compute dydt, using context (which now includes calc vars)
         dydt = []
-        for state in self.dep_var_names:
+        for state in self.state_names:
             expr = self.model_tree.dynamics[state]
             val = self.evaluate_expression(expr, context)
             dydt.append(val)
@@ -688,7 +690,7 @@ class ScipyModel(OdeModel):
         Solve the ODE system using scipy.integrate.solve_ivp and return a ComputedModel, including calculated dynamics.
         """
         times = np.array(times)
-        y_init = np.array([self.Y0[state] for state in self.dep_var_names])
+        y_init = np.array([self.Y0[state] for state in self.state_names])
         t_span = np.array([times[0], times[-1]])
         sol = sci.solve_ivp(
             fun=self.model,
@@ -703,7 +705,7 @@ class ScipyModel(OdeModel):
         calc_names = list(self.model_tree.dynamic_calcs.keys())
         calc_dyn = np.zeros((sol.t.shape[0], len(calc_names)))
         for i, t in enumerate(sol.t):
-            context = {name: sol.y[:, i][j] for j, name in enumerate(self.dep_var_names)}
+            context = {name: sol.y[:, i][j] for j, name in enumerate(self.state_names)}
             context.update(self.parameters)
             for k, cname in enumerate(calc_names):
                 expr = self.model_tree.dynamic_calcs[cname]
@@ -712,7 +714,7 @@ class ScipyModel(OdeModel):
         return ComputedModel(
             times=sol.t,
             states=sol.y.T,  # shape (n_times, n_states)
-            var_names=self.dep_var_names,
+            var_names=self.state_names,
             aux_outputs=calc_dyn,
             aux_names=calc_names,
         )
