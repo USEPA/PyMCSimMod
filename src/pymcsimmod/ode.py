@@ -42,6 +42,7 @@ class ComputedModel(BaseModel):
     var_names: list[str]
     aux_outputs: NumericArray  # shape (n_times, n_calcs)
     aux_names: list[str]
+    input_functions: dict | None = None  # Maps input name to callable
 
     @property
     def dataframe(self) -> pd.DataFrame:
@@ -99,6 +100,49 @@ class ComputedModel(BaseModel):
             elif self.aux_names is not None and var in self.aux_names:
                 idx = self.aux_names.index(var)
                 ax.plot(self.times, self.aux_outputs[:, idx], label=var, **kwargs)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        if legend:
+            ax.legend()
+        return ax
+
+    def plot_inputs(
+        self,
+        variables: str | list[str] | None = None,
+        ax: Axes | None = None,
+        legend: bool = True,
+        xlabel: str = "Time",
+        ylabel: str = "Input Value",
+        **kwargs,
+    ) -> Axes:
+        """
+        Plot the input (forcing) functions over the solution time grid.
+
+        Args:
+            variables: str or list of str, input names to plot. If None, plot all.
+            ax: Optional matplotlib axis to plot on. If None, a new figure/axis is created.
+            legend: Whether to display the legend (default: True).
+            xlabel: Label for the x-axis (default: 'Time').
+            ylabel: Label for the y-axis (default: 'Input Value').
+            **kwargs: Additional keyword arguments passed to plt.plot.
+
+        Returns:
+            The matplotlib axis object containing the plot.
+        """
+        if self.input_functions is None:
+            raise AttributeError("No input functions stored in this ComputedModel.")
+        if ax is None:
+            fig, ax = plt.subplots()
+        if variables is None:
+            variables = list(self.input_functions.keys())
+        if isinstance(variables, str):
+            variables = [variables]
+        for var in variables:
+            if var not in self.input_functions:
+                raise KeyError(f"Input '{var}' not found in input_functions.")
+            # Evaluate input function at all time points
+            values = [self.input_functions[var](t) for t in self.times]
+            ax.plot(self.times, values, label=var, **kwargs)
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
         if legend:
@@ -423,6 +467,7 @@ class JaxModelEqx(eqx.Module):
         )
 
 class EqxModel(eqx.Module):
+    
     parameters: dict = eqx.field() # Constants
     forcing_functions: dict = eqx.field() # Forcing functions for inputs
     Y0: dict = eqx.field() # State variable initial conditions
@@ -471,17 +516,13 @@ class EqxModel(eqx.Module):
         def func(t):
             return 0.0
         return func
-
-    def build_context(self, state_vals, t):
+    
+    def compile_forcing_functions(self):
         """
-        Build the context dictionary for a given state vector and time.
-        Includes state variables, parameters, forcing functions, and dynamic calcs.
-        JAX-compatible (no side effects).
+        Convert all dict-based forcing functions to JIT-compiled callables in-place.
+        Should be called before ODE solve if forcing_functions contains dicts.
         """
-        # Use tuples for state_names/output_names for JAX compatibility
-        context = {name: state_vals[i] for i, name in enumerate(self.state_names)}
-        context.update(self.parameters)
-        for input_name, ff in self.forcing_functions.items():
+        for input_name, ff in list(self.forcing_functions.items()):
             if isinstance(ff, dict) and 'function' in ff:
                 func_name = ff['function']
                 args = ff.get('args', ())
@@ -489,10 +530,19 @@ class EqxModel(eqx.Module):
                 func_factory = getattr(self, func_name, None)
                 if func_factory is None or not callable(func_factory):
                     raise AttributeError(f"Forcing function '{func_name}' not found in EqxModel.")
-                func = func_factory(*args, **kwargs)
-                context[input_name] = func(t)
-            else:
-                context[input_name] = ff(t)
+                self.forcing_functions[input_name] = func_factory(*args, **kwargs)
+            # else: already a callable, leave as is
+
+    def build_context(self, state_vals, t):
+        """
+        Build the context dictionary for a given state vector and time.
+        Includes state variables, parameters, forcing functions, and dynamic calcs.
+        JAX-compatible (no side effects).
+        """
+        context = {name: state_vals[i] for i, name in enumerate(self.state_names)}
+        context.update(self.parameters)
+        for input_name, ff in self.forcing_functions.items():
+            context[input_name] = ff(t)
         # Evaluate all dynamic calcs (needed for outputs or ODEs)
         for var, expr in self.model_tree.dynamic_calcs.items():
             context[var] = expr.evaluate(context, Approach.JAX)
@@ -508,6 +558,8 @@ class EqxModel(eqx.Module):
         return jnp.stack(dydt)
 
     def run_model(self, times):
+        # Compile forcing functions before running ODE solve
+        self.compile_forcing_functions()
         t0 = float(times[0])
         t_end = float(times[-1])
         y_init = jnp.asarray([self.Y0[state] for state in self.state_names], dtype=jnp.float32)
@@ -529,7 +581,8 @@ class EqxModel(eqx.Module):
             return jnp.array([context[name] for name in self.output_names], dtype=jnp.float32)
 
         calc_outputs = jax.vmap(calc_outputs_single, in_axes=(0, 0))(sol.ys, sol.ts)
-        return sol, calc_outputs
+        # Return the compiled forcing functions for plotting
+        return sol, calc_outputs, dict(self.forcing_functions)
         
 
 class JaxModel(OdeModel):
@@ -557,13 +610,14 @@ class JaxModel(OdeModel):
             ComputedModel instance containing the solution.
         """
         eqx_model = self._to_eqx()
-        sol, calc_outputs = eqx_model.run_model(times)
+        sol, calc_outputs, input_functions = eqx_model.run_model(times)
         return ComputedModel(
             times=np.asarray(sol.ts),
             states=np.asarray(sol.ys),
             var_names=self.state_names,
             aux_outputs=np.asarray(calc_outputs),
             aux_names=self.outputs,
+            input_functions=input_functions,
         )
     def _to_eqx(self):
         """
@@ -710,10 +764,25 @@ class ScipyModel(OdeModel):
             for i in range(sol.t.shape[0])
         ], axis=0)
 
+        # Build input_functions dict: input name -> callable
+        input_functions = {}
+        for input_name, ff in self.forcing_functions.items():
+            if isinstance(ff, dict) and 'function' in ff:
+                func_name = ff['function']
+                args = ff.get('args', ())
+                kwargs = ff.get('kwargs', {})
+                func_factory = getattr(self, func_name, None)
+                if func_factory is None or not callable(func_factory):
+                    raise AttributeError(f"Forcing function '{func_name}' not found in ScipyModel.")
+                input_functions[input_name] = func_factory(*args, **kwargs)
+            else:
+                input_functions[input_name] = ff  # already a callable
+
         return ComputedModel(
             times=sol.t,
             states=sol.y.T,  # shape (n_times, n_states)
             var_names=self.state_names,
             aux_outputs=calc_outputs,
             aux_names=output_names,
+            input_functions=input_functions,
         )
