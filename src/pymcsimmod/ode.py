@@ -151,15 +151,6 @@ class ComputedModel(BaseModel):
 
 
 class OdeModel(ABC):
-    @staticmethod
-    def ZeroFunc():
-        """
-        Default static method for forcing functions: always returns zero for any t input.
-        """
-        def func(t):
-            return 0.0
-        return func
-
     def __init__(self, model: str | Path):
         """
         Load and parse a model from a file path or string, initializing parameters and initial conditions.
@@ -181,8 +172,11 @@ class OdeModel(ABC):
         self.outputs = parsed_model.outputs
         self.state_names = list(self.Y0.keys())
         self.dep_var_indices = {name: i for i, name in enumerate(self.state_names)}
-        # Assign default forcing functions: all inputs get ZeroFunc
-        self.forcing_functions = {input_name: OdeModel.ZeroFunc() for input_name in self.inputs}
+        # Assign default forcing functions: all inputs get ZeroFunc with correct dict structure
+        self.forcing_functions = {
+            input_name: {'function': 'ZeroFunc', 'args': (), 'kwargs': {}}
+            for input_name in self.inputs
+        }
 
     def _init_parameters(self) -> None:
         """
@@ -229,23 +223,24 @@ class OdeModel(ABC):
 
     def assign_forcing_function(self, input_name, forcing_function_name, *args, **kwargs):
         """
-        Assign a forcing function to an input variable.
+        Assign a forcing function to an input variable, storing only the function name and parameters (not the factory or callable).
         Args:
             input_name: Name of the input variable to assign the forcing function to.
             forcing_function_name: Name of the forcing function ('PerDose', 'NDoses', etc.).
             *args, **kwargs: Parameters for the forcing function.
         Raises:
             ValueError: If input_name is not in self.inputs.
-            AttributeError: If the forcing function does not exist.
         """
         if not hasattr(self, 'forcing_functions'):
             self.forcing_functions = {}
         if input_name not in self.inputs:
             raise ValueError(f"'{input_name}' is not a valid input variable. Valid inputs: {self.inputs}")
-        func_factory = getattr(self, forcing_function_name, None)
-        if func_factory is None or not callable(func_factory):
-            raise AttributeError(f"Forcing function '{forcing_function_name}' not found in ScipyModel.")
-        self.forcing_functions[input_name] = func_factory(*args, **kwargs)
+        # Only store the function name and parameters; do not check or call the factory here
+        self.forcing_functions[input_name] = {
+            'function': forcing_function_name,
+            'args': args,
+            'kwargs': kwargs
+        }
 
     @abstractmethod
     def model(self, t: float, y, args) -> object:
@@ -435,6 +430,44 @@ class EqxModel(eqx.Module):
     state_names: list = eqx.field()
     output_names: list = eqx.field() # Output variable names
 
+    @staticmethod
+    def OnOff(t, t0, t1, s=10.0):
+        t = jnp.asarray(t)
+        t0 = jnp.asarray(t0)
+        t1 = jnp.asarray(t1)
+        return (jnp.tanh(s * (t - t0)) - jnp.tanh(s * (t - t1))) / 2
+
+    @staticmethod
+    def PerDose(t0, duration, period, s=10.0):
+        t0 = float(t0)
+        duration = float(duration)
+        period = float(period)
+        def func(t):
+            t = jnp.asarray(t)
+            n = jnp.floor((t - t0) / period)
+            start = t0 + n * period
+            stop = start + duration
+            return JaxModelEqx.OnOff(t, start, stop, s)
+        return func
+
+    @staticmethod
+    def NDoses(t0_list, duration, s=10.0):
+        t0_arr = jnp.array(t0_list)
+        duration = float(duration)
+        def func(t):
+            t = jnp.asarray(t)
+            return jnp.sum(JaxModelEqx.OnOff(t, t0_arr, t0_arr + duration, s), axis=-1)
+        return func
+    
+    @staticmethod
+    def ZeroFunc():
+        """
+        Default static method for forcing functions: always returns zero for any t input.
+        """
+        def func(t):
+            return 0.0
+        return func
+
     def build_context(self, state_vals, t):
         """
         Build the context dictionary for a given state vector and time.
@@ -443,8 +476,19 @@ class EqxModel(eqx.Module):
         """
         context = {name: state_vals[i] for i, name in enumerate(self.state_names)}
         context.update(self.parameters)
-        for input_name, func in self.forcing_functions.items():
-            context[input_name] = func(t)
+        for input_name, ff in self.forcing_functions.items():
+            if isinstance(ff, dict) and 'function' in ff:
+                func_name = ff['function']
+                args = ff.get('args', ())
+                kwargs = ff.get('kwargs', {})
+                func_factory = getattr(self, func_name, None)
+                if func_factory is None or not callable(func_factory):
+                    raise AttributeError(f"Forcing function '{func_name}' not found in EqxModel.")
+                func = func_factory(*args, **kwargs)
+                context[input_name] = func(t)
+            else:
+                # fallback for legacy or direct function (should not occur with new logic)
+                context[input_name] = ff(t)
         # Evaluate all dynamic calcs (needed for outputs or ODEs)
         for var, expr in self.model_tree.dynamic_calcs.items():
             context[var] = expr.evaluate(context, Approach.JAX)
@@ -497,34 +541,6 @@ class JaxModel(OdeModel):
         """
         super().__init__(model=model)
 
-    @staticmethod
-    def OnOff(t, t0, t1, s=10.0):
-        t = jnp.asarray(t)
-        t0 = jnp.asarray(t0)
-        t1 = jnp.asarray(t1)
-        return (jnp.tanh(s * (t - t0)) - jnp.tanh(s * (t - t1))) / 2
-
-    @staticmethod
-    def PerDose(t0, duration, period, s=10.0):
-        t0 = float(t0)
-        duration = float(duration)
-        period = float(period)
-        def func(t):
-            t = jnp.asarray(t)
-            n = jnp.floor((t - t0) / period)
-            start = t0 + n * period
-            stop = start + duration
-            return JaxModelEqx.OnOff(t, start, stop, s)
-        return func
-
-    @staticmethod
-    def NDoses(t0_list, duration, s=10.0):
-        t0_arr = jnp.array(t0_list)
-        duration = float(duration)
-        def func(t):
-            t = jnp.asarray(t)
-            return jnp.sum(JaxModelEqx.OnOff(t, t0_arr, t0_arr + duration, s), axis=-1)
-        return func
     
     def model(self, t: float, y, args) -> object:
         raise NotImplementedError("This method should be implemented in equinox module class.")
@@ -600,6 +616,15 @@ class ScipyModel(OdeModel):
             stop = start + duration
             return ScipyModel.OnOff(t, start, stop)
         return func
+    
+    @staticmethod
+    def ZeroFunc():
+        """
+        Default static method for forcing functions: always returns zero for any t input.
+        """
+        def func(t):
+            return 0.0
+        return func
 
     @staticmethod
     def NDoses(t0_list, duration):
@@ -619,8 +644,19 @@ class ScipyModel(OdeModel):
         """
         context = {name: state_vals[i] for i, name in enumerate(self.state_names)}
         context.update(self.parameters)
-        for input_name, func in self.forcing_functions.items():
-            context[input_name] = func(t)
+        for input_name, ff in self.forcing_functions.items():
+            if isinstance(ff, dict) and 'function' in ff:
+                func_name = ff['function']
+                args = ff.get('args', ())
+                kwargs = ff.get('kwargs', {})
+                func_factory = getattr(self, func_name, None)
+                if func_factory is None or not callable(func_factory):
+                    raise AttributeError(f"Forcing function '{func_name}' not found in ScipyModel.")
+                func = func_factory(*args, **kwargs)
+                context[input_name] = func(t)
+            else:
+                # fallback for legacy or direct function (should not occur with new logic)
+                context[input_name] = ff(t)
         # Evaluate all dynamic calcs (needed for outputs or ODEs)
         for var, expr in self.model_tree.dynamic_calcs.items():
             context[var] = expr.evaluate(context, Approach.SCIPY)
