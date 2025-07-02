@@ -427,10 +427,11 @@ class EqxModel(eqx.Module):
     forcing_functions: dict = eqx.field() # Forcing functions for inputs
     Y0: dict = eqx.field() # State variable initial conditions
     model_tree: object = eqx.static_field()
-    state_names: list = eqx.field()
-    output_names: list = eqx.field() # Output variable names
+    state_names: tuple = eqx.field()
+    output_names: tuple = eqx.field()
 
     @staticmethod
+    @jax.jit
     def OnOff(t, t0, t1, s=10.0):
         t = jnp.asarray(t)
         t0 = jnp.asarray(t0)
@@ -442,21 +443,23 @@ class EqxModel(eqx.Module):
         t0 = float(t0)
         duration = float(duration)
         period = float(period)
+        @jax.jit
         def func(t):
             t = jnp.asarray(t)
             n = jnp.floor((t - t0) / period)
             start = t0 + n * period
             stop = start + duration
-            return JaxModelEqx.OnOff(t, start, stop, s)
+            return EqxModel.OnOff(t, start, stop, s)
         return func
 
     @staticmethod
     def NDoses(t0_list, duration, s=10.0):
         t0_arr = jnp.array(t0_list)
         duration = float(duration)
+        @jax.jit
         def func(t):
             t = jnp.asarray(t)
-            return jnp.sum(JaxModelEqx.OnOff(t, t0_arr, t0_arr + duration, s), axis=-1)
+            return jnp.sum(EqxModel.OnOff(t, t0_arr, t0_arr + duration, s), axis=-1)
         return func
     
     @staticmethod
@@ -464,6 +467,7 @@ class EqxModel(eqx.Module):
         """
         Default static method for forcing functions: always returns zero for any t input.
         """
+        @jax.jit
         def func(t):
             return 0.0
         return func
@@ -474,6 +478,7 @@ class EqxModel(eqx.Module):
         Includes state variables, parameters, forcing functions, and dynamic calcs.
         JAX-compatible (no side effects).
         """
+        # Use tuples for state_names/output_names for JAX compatibility
         context = {name: state_vals[i] for i, name in enumerate(self.state_names)}
         context.update(self.parameters)
         for input_name, ff in self.forcing_functions.items():
@@ -487,46 +492,42 @@ class EqxModel(eqx.Module):
                 func = func_factory(*args, **kwargs)
                 context[input_name] = func(t)
             else:
-                # fallback for legacy or direct function (should not occur with new logic)
                 context[input_name] = ff(t)
         # Evaluate all dynamic calcs (needed for outputs or ODEs)
         for var, expr in self.model_tree.dynamic_calcs.items():
             context[var] = expr.evaluate(context, Approach.JAX)
-
-        # Evaluate any calculated outputs if needed
         if hasattr(self.model_tree, 'calc_outputs'):
             for var, expr in self.model_tree.calc_outputs.items():
                 context[var] = expr.evaluate(context, Approach.JAX)
         return context
     
+    @eqx.filter_jit
     def model(self, t, y):
         context = self.build_context(y, t)
-        dydt = []
-        for state in self.state_names:
-            expr = self.model_tree.dynamics[state]
-            val = expr.evaluate(context, Approach.JAX)
-            dydt.append(val)
+        dydt = [self.model_tree.dynamics[state].evaluate(context, Approach.JAX) for state in self.state_names]
         return jnp.stack(dydt)
 
     def run_model(self, times):
         t0 = float(times[0])
         t_end = float(times[-1])
         y_init = jnp.asarray([self.Y0[state] for state in self.state_names], dtype=jnp.float32)
-        @jax.jit
+
+        @eqx.filter_jit
         def ode_rhs(t, y, args):
             return self.model(t, y)
-        
+
         ode_term = diffrax.ODETerm(ode_rhs)
         solver = diffrax.Dopri8()
         saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t_end, len(times)))
         sol = diffrax.diffeqsolve(
             ode_term, solver, t0=t0, t1=t_end, dt0=0.01, y0=y_init, saveat=saveat, args=()
         )
-        #self.sol = sol
-        @jax.jit
+
+        @eqx.filter_jit
         def calc_outputs_single(state_vals, t):
             context = self.build_context(state_vals, t)
             return jnp.array([context[name] for name in self.output_names], dtype=jnp.float32)
+
         calc_outputs = jax.vmap(calc_outputs_single, in_axes=(0, 0))(sol.ys, sol.ts)
         return sol, calc_outputs
         
@@ -572,13 +573,14 @@ class JaxModel(OdeModel):
         All parameter updates happen prior to creating the EqxModel instance.
         All Jax-based computation happens in EqxModel.
         """
+        # Use tuples for state_names/output_names for JAX compatibility
         return EqxModel(
             parameters=self.parameters.copy(),
             forcing_functions=self.forcing_functions.copy(),
             Y0=self.Y0.copy(),
             model_tree=self.model_tree,
-            state_names=self.state_names.copy(),
-            output_names=self.outputs.copy()
+            state_names=tuple(self.state_names),
+            output_names=tuple(self.outputs)
         )
 
 class ScipyModel(OdeModel):
