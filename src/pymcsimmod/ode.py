@@ -285,6 +285,47 @@ class OdeModel(ABC):
             'args': args,
             'kwargs': kwargs
         }
+    
+    def extract_switch_times(self, forcing_functions, t_start, t_end):
+        switch_times = set()
+        for ff in forcing_functions.values():
+            if isinstance(ff, dict) and 'function' in ff:
+                func = ff['function']
+                args = ff.get('args', ())
+                kwargs = ff.get('kwargs', {})
+                if func == 'PerDose':
+                    t0 = kwargs['t0']
+                    duration = kwargs['duration']
+                    period = kwargs['period']
+                    n = 0
+                    while True:
+                        on = t0 + n * period
+                        off = on + duration
+                        if on > t_end:
+                            break
+                        if on >= t_start:
+                            switch_times.add(on)
+                        if off >= t_start and off <= t_end:
+                            switch_times.add(off)
+                        n += 1
+                elif func == 'NDoses':
+                    t0_list = kwargs['t0_list']
+                    duration = kwargs['duration']
+                    for t0 in t0_list:
+                        on = t0
+                        off = t0 + duration
+                        if on >= t_start and on <= t_end:
+                            switch_times.add(on)
+                        if off >= t_start and off <= t_end:
+                            switch_times.add(off)
+                elif func == 'OnOff':
+                    t0 = kwargs['t0']
+                    t1 = kwargs['t1']
+                    if t0 >= t_start and t0 <= t_end:
+                        switch_times.add(t0)
+                    if t1 >= t_start and t1 <= t_end:
+                        switch_times.add(t1)
+        return sorted(switch_times)
 
     @abstractmethod
     def model(self, t: float, y, args) -> object:
@@ -735,6 +776,13 @@ class ScipyModel(OdeModel):
             dydt.append(val)
         return np.array(dydt)
 
+    def make_event_switch(self, time):
+        def event(t, y):
+            return t - time
+        event.terminal = False
+        event.direction = 0
+        return event
+
     def run_model(self, times: Sequence[int, float]) -> ComputedModel:
         """
         Solve the ODE system using scipy.integrate.solve_ivp and return a ComputedModel, including calculated outputs.
@@ -742,11 +790,16 @@ class ScipyModel(OdeModel):
         times = np.array(times)
         y_init = np.array([self.Y0[state] for state in self.state_names])
         t_span = np.array([times[0], times[-1]])
+        switch_times = self.extract_switch_times(self.forcing_functions, times[0], times[-1])
+        all_times = np.unique(np.concatenate([np.asarray(times), np.asarray(switch_times)]))
+        events = [self.make_event_switch(t) for t in switch_times]
         sol = sci.solve_ivp(
             fun=self.model,
             t_span=t_span,
             y0=y_init,
-            t_eval=times,
+            t_eval=all_times,
+            vectorized=True,  # Use vectorized evaluation for speed
+            events=events,
             method='BDF'
         )
         self.sol = sol  # Store the raw solution with ScipyModel
