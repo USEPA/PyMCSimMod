@@ -1,11 +1,12 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Literal
 
 import diffrax
 import equinox as eqx
-import jax.numpy as jnp
 import jax
+import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -17,9 +18,53 @@ from pymcsimmod.extra_typing import NumericArray
 
 from .model import (
     Approach,
-    Expression,
 )
 from .parser import ModelParser
+
+
+class DiscreteEvent(BaseModel):
+    """
+    Represents a discrete event similar to deSolve's event handling.
+    
+    Attributes:
+        time: Time at which the event occurs.
+        state_var: Name of the state variable to modify.
+        value: Value to use in the operation.
+        method: Type of operation ('replace', 'add', 'multiply').
+    """
+    time: float
+    state_var: str
+    value: float
+    method: Literal['replace', 'add', 'multiply'] = 'add'
+
+    def apply(self, state_dict: dict[str, float], state_names: list[str]) -> dict[str, float]:
+        """
+        Apply the event to a state dictionary.
+        
+        Args:
+            state_dict: Dictionary mapping state variable names to values.
+            state_names: List of state variable names for validation.
+            
+        Returns:
+            Updated state dictionary.
+            
+        Raises:
+            KeyError: If state_var is not in state_names.
+        """
+        if self.state_var not in state_names:
+            raise KeyError(f"State variable '{self.state_var}' not found in model state variables: {state_names}")
+        
+        new_state = state_dict.copy()
+        current_value = new_state[self.state_var]
+        
+        if self.method == 'replace':
+            new_state[self.state_var] = self.value
+        elif self.method == 'add':
+            new_state[self.state_var] = current_value + self.value
+        elif self.method == 'multiply':
+            new_state[self.state_var] = current_value * self.value
+        
+        return new_state
 
 
 class ComputedModel(BaseModel):
@@ -221,6 +266,8 @@ class OdeModel(ABC):
             input_name: {'function': 'ZeroFunc', 'args': (), 'kwargs': {}}
             for input_name in self.inputs
         }
+        # Initialize events list
+        self.events = []
 
     def _init_parameters(self) -> None:
         """
@@ -265,6 +312,61 @@ class OdeModel(ABC):
         for key, value in Y0.items():
             self.Y0[key] = value
 
+    def add_event(self, time: float, state_var: str, value: float, method: Literal['replace', 'add', 'multiply'] = 'add') -> None:
+        """
+        Add a discrete event to occur at a specific time.
+        
+        Args:
+            time: Time at which the event occurs.
+            state_var: Name of the state variable to modify.
+            value: Value to use in the operation.
+            method: Type of operation ('replace', 'add', 'multiply').
+            
+        Raises:
+            KeyError: If state_var is not a valid state variable.
+        """
+        if state_var not in self.state_names:
+            raise KeyError(f"State variable '{state_var}' not found. Valid state variables: {self.state_names}")
+        
+        event = DiscreteEvent(time=time, state_var=state_var, value=value, method=method)
+        self.events.append(event)
+        # Keep events sorted by time for efficient processing
+        self.events.sort(key=lambda e: e.time)
+
+    def clear_events(self) -> None:
+        """Clear all discrete events."""
+        self.events = []
+
+    def get_event_times(self, t_start: float, t_end: float) -> list[float]:
+        """
+        Get all event times within the specified time range.
+        
+        Args:
+            t_start: Start time.
+            t_end: End time.
+            
+        Returns:
+            List of event times within [t_start, t_end].
+        """
+        return [event.time for event in self.events if t_start <= event.time <= t_end]
+
+    def apply_events_at_time(self, t: float, state_dict: dict[str, float]) -> dict[str, float]:
+        """
+        Apply all events that occur at time t.
+        
+        Args:
+            t: Current time.
+            state_dict: Current state as a dictionary.
+            
+        Returns:
+            Updated state dictionary after applying events.
+        """
+        # Apply events in order (already sorted by time)
+        for event in self.events:
+            if abs(event.time - t) < 1e-12:  # Use small tolerance for floating point comparison
+                state_dict = event.apply(state_dict, self.state_names)
+        return state_dict
+
     def assign_forcing_function(self, input_name, forcing_function_name, *args, **kwargs):
         """
         Assign a forcing function to an input variable, storing only the function name and parameters (not the factory or callable).
@@ -285,9 +387,22 @@ class OdeModel(ABC):
             'args': args,
             'kwargs': kwargs
         }
-    
+
     def extract_switch_times(self, forcing_functions, t_start, t_end):
+        """
+        Extract switching times from forcing functions and discrete events.
+        
+        Args:
+            forcing_functions: Dictionary of forcing function specifications.
+            t_start: Start time for extraction.
+            t_end: End time for extraction.
+            
+        Returns:
+            Sorted list of switch times within [t_start, t_end].
+        """
         switch_times = set()
+        
+        # Add forcing function switch times
         for ff in forcing_functions.values():
             if isinstance(ff, dict) and 'function' in ff:
                 func = ff['function']
@@ -325,6 +440,11 @@ class OdeModel(ABC):
                         switch_times.add(t0)
                     if t1 >= t_start and t1 <= t_end:
                         switch_times.add(t1)
+        
+        # Add event times
+        event_times = self.get_event_times(t_start, t_end)
+        switch_times.update(event_times)
+        
         return sorted(switch_times)
 
     @abstractmethod
@@ -512,6 +632,7 @@ class EqxModel(eqx.Module):
     parameters: dict = eqx.field() # Constants
     forcing_functions: dict = eqx.field() # Forcing functions for inputs
     Y0: dict = eqx.field() # State variable initial conditions
+    events: list = eqx.field() # Discrete events
     model_tree: object = eqx.static_field()
     state_names: tuple = eqx.field()
     output_names: tuple = eqx.field()
@@ -599,6 +720,14 @@ class EqxModel(eqx.Module):
         return jnp.stack(dydt)
 
     def run_model(self, times):
+        # Check for events and warn
+        if self.events:
+            raise NotImplementedError(
+                "Discrete events are not yet supported for JAX-based models. "
+                "Please use ScipyModel for models with discrete events, or consider "
+                "implementing events as continuous forcing functions."
+            )
+        
         # Compile forcing functions before running ODE solve
         self.compile_forcing_functions()
         t0 = float(times[0])
@@ -673,6 +802,7 @@ class JaxModel(OdeModel):
             parameters=self.parameters.copy(),
             forcing_functions=self.forcing_functions.copy(),
             Y0=self.Y0.copy(),
+            events=self.events.copy(),
             model_tree=self.model_tree,
             state_names=tuple(self.state_names),
             output_names=tuple(self.outputs)
@@ -786,22 +916,111 @@ class ScipyModel(OdeModel):
     def run_model(self, times: Sequence[int, float]) -> ComputedModel:
         """
         Solve the ODE system using scipy.integrate.solve_ivp and return a ComputedModel, including calculated outputs.
+        Handles discrete events by integrating between event times and applying events.
         """
         times = np.array(times)
         y_init = np.array([self.Y0[state] for state in self.state_names])
-        t_span = np.array([times[0], times[-1]])
+        
+        # Get all switch times (forcing functions + events)
         switch_times = self.extract_switch_times(self.forcing_functions, times[0], times[-1])
-        all_times = np.unique(np.concatenate([np.asarray(times), np.asarray(switch_times)]))
-        events = [self.make_event_switch(t) for t in switch_times]
-        sol = sci.solve_ivp(
-            fun=self.model,
-            t_span=t_span,
-            y0=y_init,
-            t_eval=all_times,
-            vectorized=True,  # Use vectorized evaluation for speed
-            events=events,
-            method='BDF'
-        )
+        
+        # If no events, use the original method
+        if not self.events:
+            t_span = np.array([times[0], times[-1]])
+            all_times = np.unique(np.concatenate([np.asarray(times), np.asarray(switch_times)]))
+            events = [self.make_event_switch(t) for t in switch_times]
+            sol = sci.solve_ivp(
+                fun=self.model,
+                t_span=t_span,
+                y0=y_init,
+                t_eval=all_times,
+                vectorized=True,
+                events=events,
+                method='BDF'
+            )
+        else:
+            # Handle discrete events by integrating between event times
+            event_times = [e.time for e in self.events if times[0] <= e.time <= times[-1]]
+            
+            # Create segments between events
+            segments = []
+            t_start = times[0]
+            
+            for event_time in sorted(event_times):
+                if event_time > t_start:
+                    segments.append((t_start, event_time))
+                t_start = event_time
+            
+            # Add final segment
+            if t_start < times[-1]:
+                segments.append((t_start, times[-1]))
+            
+            # Integrate each segment
+            all_sol_times = []
+            all_sol_states = []
+            current_y = y_init.copy()
+            
+            for i, (seg_start, seg_end) in enumerate(segments):
+                # Get times for this segment
+                seg_times = times[(times >= seg_start) & (times <= seg_end)]
+                seg_switch_times = [t for t in switch_times if seg_start < t < seg_end]
+                seg_all_times = np.unique(np.concatenate([seg_times, seg_switch_times]))
+                
+                if len(seg_all_times) > 0 and seg_all_times[0] != seg_start:
+                    seg_all_times = np.concatenate([[seg_start], seg_all_times])
+                if len(seg_all_times) > 0 and seg_all_times[-1] != seg_end:
+                    seg_all_times = np.concatenate([seg_all_times, [seg_end]])
+                
+                if len(seg_all_times) > 1:
+                    # Create events for this segment
+                    seg_events = [self.make_event_switch(t) for t in seg_switch_times]
+                    
+                    # Solve for this segment
+                    seg_sol = sci.solve_ivp(
+                        fun=self.model,
+                        t_span=[seg_start, seg_end],
+                        y0=current_y,
+                        t_eval=seg_all_times,
+                        vectorized=True,
+                        events=seg_events,
+                        method='BDF'
+                    )
+                    
+                    all_sol_times.append(seg_sol.t)
+                    all_sol_states.append(seg_sol.y)
+                    
+                    # Update current state to end of segment
+                    current_y = seg_sol.y[:, -1]
+                
+                # Apply events at seg_end if there are any
+                if seg_end in event_times:
+                    state_dict = {name: current_y[i] for i, name in enumerate(self.state_names)}
+                    state_dict = self.apply_events_at_time(seg_end, state_dict)
+                    current_y = np.array([state_dict[name] for name in self.state_names])
+            
+            # Combine all solutions
+            if all_sol_times:
+                combined_times = np.concatenate(all_sol_times)
+                combined_states = np.concatenate(all_sol_states, axis=1)
+                
+                # Create a mock solution object compatible with the rest of the code
+                class MockSolution:
+                    def __init__(self, t, y):
+                        self.t = t
+                        self.y = y
+                
+                sol = MockSolution(combined_times, combined_states)
+            else:
+                # Fallback if no segments
+                sol = sci.solve_ivp(
+                    fun=self.model,
+                    t_span=[times[0], times[-1]],
+                    y0=y_init,
+                    t_eval=times,
+                    vectorized=True,
+                    method='BDF'
+                )
+        
         self.sol = sol  # Store the raw solution with ScipyModel
 
         # Vectorized calculation of outputs (from self.outputs) for each time point
@@ -822,12 +1041,11 @@ class ScipyModel(OdeModel):
         for input_name, ff in self.forcing_functions.items():
             if isinstance(ff, dict) and 'function' in ff:
                 func_name = ff['function']
-                args = ff.get('args', ())
                 kwargs = ff.get('kwargs', {})
                 func_factory = getattr(self, func_name, None)
                 if func_factory is None or not callable(func_factory):
                     raise AttributeError(f"Forcing function '{func_name}' not found in ScipyModel.")
-                input_functions[input_name] = func_factory(*args, **kwargs)
+                input_functions[input_name] = func_factory(*ff.get('args', ()), **kwargs)
             else:
                 input_functions[input_name] = ff  # already a callable
 
