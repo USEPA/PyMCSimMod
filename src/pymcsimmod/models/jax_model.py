@@ -21,7 +21,7 @@ class EqxModel(eqx.Module):
     forcing_functions: dict = eqx.field()  # Forcing functions for inputs
     Y0: dict = eqx.field()  # State variable initial conditions
     events: list = eqx.field()  # Discrete events
-    model_tree: object = eqx.static_field()
+    model_tree: object = eqx.field(static=True)
     state_names: tuple = eqx.field()
     output_names: tuple = eqx.field()
 
@@ -72,15 +72,29 @@ class EqxModel(eqx.Module):
 
     def compile_forcing_functions(self):
         """Convert all dict-based forcing functions to JIT-compiled callables."""
-        for input_name, ff in list(self.forcing_functions.items()):
-            if isinstance(ff, dict) and 'function' in ff:
+        # Create a new dict to avoid mutating during iteration
+        compiled_functions = {}
+        for input_name, ff in self.forcing_functions.items():
+            # Check if it's a dict-like forcing function specification
+            # Use duck typing with specific attribute checks instead of isinstance
+            if (hasattr(ff, 'get') and
+                hasattr(ff, '__getitem__') and
+                'function' in ff):
+                # It's a forcing function specification dict
                 func_name = ff['function']
                 args = ff.get('args', ())
                 kwargs = ff.get('kwargs', {})
                 func_factory = getattr(self, func_name, None)
                 if func_factory is None or not callable(func_factory):
                     raise AttributeError(f"Forcing function '{func_name}' not found in EqxModel.")
-                self.forcing_functions[input_name] = func_factory(*args, **kwargs)
+                compiled_functions[input_name] = func_factory(*args, **kwargs)
+            else:
+                # It's already a compiled function or other callable
+                compiled_functions[input_name] = ff
+        
+        # Replace forcing_functions with compiled version
+        # forcing_functions must be immutable, so use object.__setattr__
+        object.__setattr__(self, 'forcing_functions', compiled_functions)
 
     def build_context(self, state_vals, t):
         """Build context dictionary for expression evaluation (JAX-compatible)."""
@@ -192,4 +206,4 @@ class JaxModel(OdeModel):
             output_names=tuple(self.outputs)
         )
 
-__all__ = ["EqxModel", "JaxModel", "JaxModelEqx"]
+__all__ = ["EqxModel", "JaxModel"]

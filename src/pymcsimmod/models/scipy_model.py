@@ -25,21 +25,22 @@ class ScipyModel(OdeModel):
         super().__init__(model=model)
     
     @staticmethod
-    def OnOff(t, t0, t1, s=10.0):
+    def OnOff(t0, t1, s=10.0):
         """
         On-off forcing function.
         
         Args:
-            t: current time
             t0: time when function turns on
             t1: time when function turns off
             s: smoothing parameter (default: 10.0)
             
         Returns:
-            Value between 0 and 1 representing on/off state.
+            Function that takes time t and returns on/off value between 0 and 1.
         """
-        y = (np.tanh(s*(t-t0)) - np.tanh(s*(t-t1)))/2
-        return y
+        def func(t):
+            y = (np.tanh(s*(t-t0)) - np.tanh(s*(t-t1)))/2
+            return y
+        return func
 
     @staticmethod
     def PerDose(t0, duration, period, s=10.0):
@@ -61,7 +62,7 @@ class ScipyModel(OdeModel):
             n = int((t - t0) // period)
             start = t0 + n * period
             stop = start + duration
-            return ScipyModel.OnOff(t, start, stop, s)
+            return ScipyModel.OnOff(start, stop, s)(t)
         return func
     
     @staticmethod
@@ -90,7 +91,7 @@ class ScipyModel(OdeModel):
             Function that takes time t and returns dose value.
         """
         def func(t):
-            return sum(ScipyModel.OnOff(t, t0, t0 + duration, s) for t0 in t0_list)
+            return sum(ScipyModel.OnOff(t0, t0 + duration, s)(t) for t0 in t0_list)
         return func
 
     def build_context(self, state_vals, t):
