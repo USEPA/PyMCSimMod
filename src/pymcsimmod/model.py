@@ -340,10 +340,12 @@ class Model(BaseModel):
         Returns a list of input names.
         """
         if not hasattr(self, "_inputs"):
+            self._inputs = []  # Default to empty list
             for section in self.sections:
                 if isinstance(section, InputsSection):
                     self._inputs = [declaration.name for declaration in section.declarations]
-            return self._inputs
+                    break
+        return self._inputs
     
     @property
     def outputs(self) -> list[str]:
@@ -352,10 +354,12 @@ class Model(BaseModel):
         Returns a list of output names.
         """
         if not hasattr(self, "_outputs"):
+            self._outputs = []  # Default to empty list
             for section in self.sections:
                 if isinstance(section, OutputsSection):
                     self._outputs = [declaration.name for declaration in section.declarations]
-            return self._outputs
+                    break
+        return self._outputs
 
     @property
     def Y0(self) -> dict[str, float | int]:
