@@ -38,7 +38,7 @@ Outputs = {
 # INPUT VARIABLES for the model (which are independent of other variables, and
 # which may vary in time).
 
-Inputs = {OralExp, IVExp};
+Inputs = {OralExp, IVExp, BW_input};
 
 # End of INPUT VARIABLES.
 #-------------------------------------------------------------------------------
@@ -48,7 +48,7 @@ Inputs = {OralExp, IVExp};
 # PARAMETERS for the model (which are independent of time).
 
 # Experimental parameters.
-Vd = 50;            # Volume of distribution (L).
+Vdc = 0.66;            # Volume of distribution (L).
 k01 = 1;            # Absorption rate (h^{-1}).
 k12 = 0.5;          # Clearance rate (h^{-1}).
 MW = 150;           # Molecular weight (g/mol).
@@ -81,6 +81,7 @@ Initialize {
 
 Dynamics {
     # Output variables.
+    Vd = Vdc * BW_input;  # Volume of distribution (L).
     C = A1 / Vd;          # Concentration in central compartment (mg/L).
     ODose = OralDose / OralDur; # Rate of dosing
     
