@@ -1,6 +1,28 @@
 """Backend detection and validation utilities."""
 
+from enum import Enum
 from typing import Protocol, runtime_checkable
+
+from pydantic import BaseModel, field_validator
+
+
+class SupportedBackend(str, Enum):
+    """Enumeration of supported backends."""
+    SCIPY = "scipy"
+    JAX = "jax"
+
+
+class BackendRequest(BaseModel):
+    """Pydantic model for backend validation."""
+    backend: SupportedBackend
+    
+    @field_validator('backend', mode='before')
+    @classmethod
+    def validate_backend_not_none(cls, v):
+        """Ensure backend is not None."""
+        if v is None:
+            raise TypeError("Backend cannot be None")
+        return v
 
 
 @runtime_checkable
@@ -54,17 +76,27 @@ def validate_backend(backend: str) -> None:
     Raises:
         ValueError: If backend is not supported
         ImportError: If backend dependencies are not available
+        TypeError: If backend is None
     """
-    supported_backends = {"scipy", "jax"}
+    # Use Pydantic validation for type checking and enum validation
+    try:
+        request = BackendRequest(backend=backend)
+        backend_enum = request.backend
+    except ValueError as e:
+        # Convert Pydantic ValueError to our expected ValueError
+        if "Input should be 'scipy' or 'jax'" in str(e):
+            raise ValueError(f"Unsupported backend '{backend}'. Supported backends: {{'scipy', 'jax'}}")
+        raise
+    except TypeError:
+        # Re-raise TypeError for None values
+        raise
     
-    if backend not in supported_backends:
-        raise ValueError(f"Unsupported backend '{backend}'. Supported backends: {supported_backends}")
-    
+    # Check if dependencies are available
     available = detect_available_backends()
-    if not available[backend]:
-        if backend == "scipy":
+    if not available[backend_enum.value]:
+        if backend_enum == SupportedBackend.SCIPY:
             raise ImportError("Scipy backend requires: scipy")
-        elif backend == "jax":
+        elif backend_enum == SupportedBackend.JAX:
             raise ImportError("JAX backend requires: jax, equinox, diffrax")
 
 
@@ -77,9 +109,19 @@ def get_backend_capabilities(backend: str) -> dict[str, bool]:
         
     Returns:
         Dictionary of backend capabilities
+        
+    Raises:
+        ValueError: If backend is unknown
     """
+    # Validate backend using Pydantic
+    try:
+        request = BackendRequest(backend=backend)
+        backend_enum = request.backend
+    except (ValueError, TypeError):
+        raise ValueError(f"Unknown backend '{backend}'. Supported: {list(SupportedBackend)}")
+    
     capabilities = {
-        "scipy": {
+        SupportedBackend.SCIPY: {
             "discrete_events": True,
             "forcing_functions": True,
             "adaptive_stepping": True,
@@ -87,7 +129,7 @@ def get_backend_capabilities(backend: str) -> dict[str, bool]:
             "jit_compilation": False,
             "automatic_differentiation": False,
         },
-        "jax": {
+        SupportedBackend.JAX: {
             "discrete_events": False,  # Currently unsupported
             "forcing_functions": True,
             "adaptive_stepping": True,
@@ -97,10 +139,7 @@ def get_backend_capabilities(backend: str) -> dict[str, bool]:
         }
     }
     
-    if backend not in capabilities:
-        raise ValueError(f"Unknown backend: {backend}")
-    
-    return capabilities[backend]
+    return capabilities[backend_enum]
 
 
 def recommend_backend(
