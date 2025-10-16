@@ -46,6 +46,42 @@ def simple_model_str():
 class TestScipyModel:
     """Tests for the ScipyModel class."""
 
+    def test_model_runs_and_updates_comprehensive(self, simple_model_str):
+        """Test comprehensive model running, updates, and ComputedModel interface."""
+        model = ScipyModel(simple_model_str)
+        times = np.linspace(0, 5, 10)
+        
+        # Set initial condition to make the model dynamic
+        model.update_Y0(A=10.0)
+        
+        # Run initial model
+        sol = model.run_model(times)
+        
+        # Test ComputedModel interface
+        assert sol.states.shape == (10, 1)
+        assert sol.times.shape == (10,)
+        assert sol.var_names == ["A"]
+        
+        # Test indexing access
+        np.testing.assert_allclose(sol[0], sol.states[:, 0])
+        np.testing.assert_allclose(sol["A"], sol.states[:, 0])
+        
+        # Test plotting (should not raise)
+        ax = sol.plot_results()
+        assert ax is not None
+        
+        # Update parameter and check new solution is different
+        model.update_constants(ke=1.0)
+        sol2 = model.run_model(times)
+        assert not np.allclose(sol.states, sol2.states)
+        assert model.parameters["ke"] == 1.0
+        
+        # Update Y0 again and check new solution is different
+        model.update_Y0(A=1.0)
+        sol3 = model.run_model(times)
+        assert not np.allclose(sol2.states, sol3.states)
+        assert model.Y0["A"] == 1.0
+
     @pytest.fixture
     def model_with_events_str(self):
         """Model string with events for testing."""
