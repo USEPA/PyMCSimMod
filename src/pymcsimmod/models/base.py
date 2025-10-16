@@ -140,26 +140,57 @@ class OdeModel(ABC):
                 state_dict = event.apply(state_dict, self.state_names)
         return state_dict
 
-    def assign_forcing_function(self, input_name, forcing_function_name, *args, **kwargs):
+    def assign_forcing_function(self, input_name, forcing_function_name=None, *args, **kwargs):
         """
         Assign a forcing function to an input variable, storing only the function name and parameters (not the factory or callable).
+        
+        This method supports two usage patterns:
+        1. Traditional forcing functions: assign_forcing_function('input', 'PerDose', t0=0, duration=1, period=24)
+        2. Interpolated forcing: assign_forcing_function('input', times=[0,1,2], values=[10,20,30])
+        
         Args:
             input_name: Name of the input variable to assign the forcing function to.
-            forcing_function_name: Name of the forcing function ('PerDose', 'NDoses', etc.).
+            forcing_function_name: Name of the forcing function ('PerDose', 'NDoses', etc.) OR
+                                 the 'times' parameter for interpolated forcing (for backwards compatibility).
             *args, **kwargs: Parameters for the forcing function.
+                           For interpolated forcing, use times= and values= keyword arguments.
         Raises:
-            ValueError: If input_name is not in self.inputs.
+            ValueError: If input_name is not in self.inputs or invalid parameters provided.
         """
         if not hasattr(self, 'forcing_functions'):
             self.forcing_functions = {}
         if input_name not in self.inputs:
             raise ValueError(f"'{input_name}' is not a valid input variable. Valid inputs: {self.inputs}")
-        # Only store the function name and parameters; do not check or call the factory here
-        self.forcing_functions[input_name] = {
-            'function': forcing_function_name,
-            'args': args,
-            'kwargs': kwargs
-        }
+        
+        # Check if this is interpolated forcing (times and values provided)
+        times = kwargs.get('times')
+        if times is None and isinstance(forcing_function_name, (list, tuple)):
+            times = forcing_function_name
+        values = kwargs.get('values')
+        
+        if times is not None and values is not None:
+            # This is interpolated forcing
+            # Remove times and values from kwargs if they exist
+            interp_kwargs = kwargs.copy()
+            interp_kwargs.pop('times', None)
+            interp_kwargs.pop('values', None)
+            
+            self.forcing_functions[input_name] = {
+                'function': 'InterpolatedForcing',
+                'args': (times, values),
+                'kwargs': interp_kwargs
+            }
+        elif times is not None and values is None:
+            raise ValueError("Both 'times' and 'values' must be provided for interpolated forcing")
+        elif forcing_function_name is None:
+            raise ValueError("Either forcing_function_name or times/values must be provided")
+        else:
+            # Traditional forcing function
+            self.forcing_functions[input_name] = {
+                'function': forcing_function_name,
+                'args': args,
+                'kwargs': kwargs
+            }
 
     def extract_switch_times(self, forcing_functions, t_start, t_end):
         """
@@ -212,6 +243,12 @@ class OdeModel(ABC):
                         switch_times.add(t0)
                     if t1 >= t_start and t1 <= t_end:
                         switch_times.add(t1)
+                elif func == 'InterpolatedForcing':
+                    # For interpolated forcing, add the data time points as switch times
+                    times_data = ff['args'][0] if len(ff['args']) > 0 else []
+                    for t in times_data:
+                        if t >= t_start and t <= t_end:
+                            switch_times.add(t)
         
         # Add event times
         event_times = self.get_event_times(t_start, t_end)

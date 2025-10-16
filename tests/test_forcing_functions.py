@@ -65,6 +65,27 @@ class TestScipyForcingFunctions:
         results = zero_func(times)
         np.testing.assert_array_equal(results, np.zeros_like(times))
 
+    def test_constfunc_scipy(self):
+        """Test scipy ConstFunc creation and functionality."""
+        from pymcsimmod.models.scipy_model import ScipyModel
+        
+        # Create a simple test using ScipyModel static method
+        const_func = ScipyModel.ConstFunc(value=42.0)
+        
+        # Should always return the constant value
+        assert const_func(0.0) == 42.0
+        assert const_func(10.0) == 42.0
+        assert const_func(-5.0) == 42.0
+        
+        # Test with arrays
+        times = np.array([1.0, 2.0, 3.0])
+        results = const_func(times)
+        np.testing.assert_array_equal(results, np.full_like(times, 42.0))
+        
+        # Test different values
+        const_func_2 = ScipyModel.ConstFunc(value=3.14)
+        assert const_func_2(1.0) == 3.14
+
     def test_smoothing_parameter_effect(self):
         """Test that smoothing parameter affects transition sharpness."""
         from pymcsimmod.forcing.scipy_functions import create_onoff
@@ -135,6 +156,22 @@ class TestJaxForcingFunctions:
         # Should always return 0
         result = zero_func(1.0)  # JAX functions expect scalars
         assert result == 0.0
+
+    def test_constfunc_jax(self):
+        """Test JAX ConstFunc creation and functionality."""
+        from pymcsimmod.models.jax_model import EqxModel
+        
+        # Create a simple test using EqxModel static method
+        const_func = EqxModel.ConstFunc(value=42.0)
+        
+        # Should always return the constant value
+        assert const_func(0.0) == 42.0
+        assert const_func(10.0) == 42.0
+        assert const_func(-5.0) == 42.0
+        
+        # Test different values
+        const_func_2 = EqxModel.ConstFunc(value=3.14)
+        assert const_func_2(1.0) == 3.14
 
     def test_jax_jit_compatibility(self):
         """Test that JAX forcing functions are JIT-compatible."""
@@ -377,3 +414,248 @@ class TestForcingFunctionIntegration:
         # With zero dosing and ke=0.1, A should decay exponentially from 1.0
         assert result.states[0, 0] == 1.0  # Initial value
         assert result.states[-1, 0] < result.states[0, 0]  # Should decay
+
+
+class TestInterpolatedForcing:
+    """Tests for interpolated forcing functions."""
+
+    @pytest.fixture
+    def sample_data(self):
+        """Sample time-value data for testing."""
+        return {
+            'times': [0, 1, 2, 5, 10],
+            'values': [10, 15, 20, 35, 50]
+        }
+
+    @pytest.fixture
+    def sample_dataframe(self, sample_data):
+        """Sample DataFrame for testing."""
+        import pandas as pd
+        return pd.DataFrame({
+            'time': sample_data['times'],
+            'bodyweight': sample_data['values']
+        })
+
+    def test_basic_initialization(self, sample_data):
+        """Test basic initialization of InterpolatedForcing."""
+        from pymcsimmod.forcing.interpolated import InterpolatedForcing
+        
+        forcing = InterpolatedForcing(sample_data['times'], sample_data['values'])
+        
+        assert len(forcing.times) == 5
+        assert len(forcing.values) == 5
+        assert forcing.interpolation_method == 'linear'
+        assert not forcing.bounds_error
+        assert forcing.fill_value == 'extrapolate'
+
+    def test_initialization_with_options(self, sample_data):
+        """Test initialization with custom options."""
+        from pymcsimmod.forcing.interpolated import InterpolatedForcing
+        
+        forcing = InterpolatedForcing(
+            sample_data['times'],
+            sample_data['values'],
+            interpolation_method='cubic',
+            bounds_error=True,
+            fill_value=0.0
+        )
+        
+        assert forcing.interpolation_method == 'cubic'
+        assert forcing.bounds_error
+        assert forcing.fill_value == 0.0
+
+    def test_from_dataframe(self, sample_dataframe):
+        """Test creating InterpolatedForcing from DataFrame."""
+        from pymcsimmod.forcing.interpolated import InterpolatedForcing
+        
+        forcing = InterpolatedForcing.from_dataframe(
+            sample_dataframe,
+            time_col='time',
+            value_col='bodyweight'
+        )
+        
+        assert len(forcing.times) == 5
+        assert len(forcing.values) == 5
+        np.testing.assert_array_equal(forcing.times, [0, 1, 2, 5, 10])
+        np.testing.assert_array_equal(forcing.values, [10, 15, 20, 35, 50])
+
+    def test_scipy_function_creation(self, sample_data):
+        """Test scipy interpolation function creation."""
+        from pymcsimmod.forcing.interpolated import InterpolatedForcing
+        
+        forcing = InterpolatedForcing(sample_data['times'], sample_data['values'])
+        func = forcing.create_function('scipy')
+        
+        # Test exact points
+        assert func(0) == 10
+        assert func(1) == 15
+        assert func(10) == 50
+        
+        # Test interpolated point
+        result = func(0.5)
+        assert 10 < result < 15
+
+    @pytest.mark.skipif(
+        not pytest.importorskip("jax", reason="JAX not available"),
+        reason="JAX not available"
+    )
+    def test_jax_function_creation(self, sample_data):
+        """Test JAX interpolation function creation."""
+        from pymcsimmod.forcing.interpolated import InterpolatedForcing
+        import jax.numpy as jnp
+        
+        forcing = InterpolatedForcing(sample_data['times'], sample_data['values'])
+        func = forcing.create_function('jax')
+        
+        # Test exact points
+        assert func(jnp.array(0.0)) == 10
+        assert func(jnp.array(1.0)) == 15
+        assert func(jnp.array(10.0)) == 50
+        
+        # Test interpolated point
+        result = func(jnp.array(0.5))
+        assert 10 < result < 15
+
+    def test_data_sorting(self):
+        """Test that unsorted data gets sorted automatically."""
+        from pymcsimmod.forcing.interpolated import InterpolatedForcing
+        
+        # Unsorted data
+        times = [5, 1, 10, 0, 2]
+        values = [35, 15, 50, 10, 20]
+        
+        forcing = InterpolatedForcing(times, values)
+        
+        # Should be sorted
+        np.testing.assert_array_equal(forcing.times, [0, 1, 2, 5, 10])
+        np.testing.assert_array_equal(forcing.values, [10, 15, 20, 35, 50])
+
+    def test_duplicate_times_error(self):
+        """Test that duplicate times raise an error."""
+        from pymcsimmod.forcing.interpolated import InterpolatedForcing
+        
+        times = [0, 1, 1, 2]  # Duplicate at t=1
+        values = [10, 15, 20, 25]
+        
+        with pytest.raises(ValueError, match="Duplicate time points"):
+            InterpolatedForcing(times, values)
+
+    def test_switch_times(self, sample_data):
+        """Test switch times calculation."""
+        from pymcsimmod.forcing.interpolated import InterpolatedForcing
+        
+        forcing = InterpolatedForcing(sample_data['times'], sample_data['values'])
+        
+        # Full range
+        switch_times = forcing.get_switch_times(0, 10)
+        expected = [0, 1, 2, 5, 10]
+        assert switch_times == expected
+        
+        # Partial range
+        switch_times = forcing.get_switch_times(1.5, 6)
+        expected = [2, 5]
+        assert switch_times == expected
+
+    def test_model_integration_scipy(self, sample_data):
+        """Test integration with ScipyModel."""
+        from pymcsimmod import ScipyModel
+        from pathlib import Path
+        
+        model_file = Path("tests/data/pk1_dosing.model")
+        model = ScipyModel(model_file)
+        
+        # Assign interpolated forcing function
+        model.assign_forcing_function(
+            'BW_input',
+            times=sample_data['times'],
+            values=sample_data['values']
+        )
+        
+        # Check that the forcing function was stored correctly
+        assert 'BW_input' in model.forcing_functions
+        assert model.forcing_functions['BW_input']['function'] == 'InterpolatedForcing'
+        
+        # Run the model
+        times = np.linspace(0, 10, 50)
+        solution = model.run_model(times)
+        
+        # Basic checks
+        assert len(solution.times) >= 50  # Allow for switch times
+        assert hasattr(solution, 'states')
+
+    @pytest.mark.skipif(
+        not pytest.importorskip("jax", reason="JAX not available"),
+        reason="JAX not available"
+    )
+    def test_model_integration_jax(self, sample_data):
+        """Test integration with JaxModel."""
+        from pymcsimmod import JaxModel
+        from pathlib import Path
+        
+        model_file = Path("tests/data/pk1_dosing.model")
+        model = JaxModel(model_file)
+        
+        # Assign interpolated forcing function
+        model.assign_forcing_function(
+            'BW_input',
+            times=sample_data['times'],
+            values=sample_data['values']
+        )
+        
+        # Check that the forcing function was stored correctly
+        assert 'BW_input' in model.forcing_functions
+        assert model.forcing_functions['BW_input']['function'] == 'InterpolatedForcing'
+        
+        # Run the model
+        times = np.linspace(0, 10, 50)
+        solution = model.run_model(times)
+        
+        # Basic checks
+        assert len(solution.times) >= 50  # Allow for switch times
+        assert hasattr(solution, 'states')
+
+    def test_constant_func_integration_scipy(self):
+        """Test ConstFunc integration with ScipyModel."""
+        from pymcsimmod import ScipyModel
+        from pathlib import Path
+        
+        model_file = Path("tests/data/pk1_dosing.model")
+        model = ScipyModel(model_file)
+        
+        # Assign ConstFunc
+        model.assign_forcing_function('BW_input', 'ConstFunc', value=0.75)
+        
+        # Check storage
+        assert 'BW_input' in model.forcing_functions
+        assert model.forcing_functions['BW_input']['function'] == 'ConstFunc'
+        assert model.forcing_functions['BW_input']['kwargs']['value'] == 0.75
+        
+        # Run model
+        times = np.linspace(0, 5, 50)
+        solution = model.run_model(times)
+        assert len(solution.times) >= 50  # Allow for switch times
+
+    @pytest.mark.skipif(
+        not pytest.importorskip("jax", reason="JAX not available"),
+        reason="JAX not available"
+    )
+    def test_constant_func_integration_jax(self):
+        """Test ConstFunc integration with JaxModel."""
+        from pymcsimmod import JaxModel
+        from pathlib import Path
+        
+        model_file = Path("tests/data/pk1_dosing.model")
+        model = JaxModel(model_file)
+        
+        # Assign ConstFunc
+        model.assign_forcing_function('BW_input', 'ConstFunc', value=1.0)
+        
+        # Check storage
+        assert 'BW_input' in model.forcing_functions
+        assert model.forcing_functions['BW_input']['function'] == 'ConstFunc'
+        assert model.forcing_functions['BW_input']['kwargs']['value'] == 1.0
+        
+        # Run model
+        times = np.linspace(0, 5, 50)
+        solution = model.run_model(times)
+        assert len(solution.times) >= 50  # Allow for switch times

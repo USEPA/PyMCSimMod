@@ -63,11 +63,38 @@ class EqxModel(eqx.Module):
         return func
 
     @staticmethod
+    def InterpolatedForcing(times, values, **kwargs):
+        """
+        Create an interpolated forcing function from time-value data for JAX.
+        
+        Args:
+            times: Array-like of time points.
+            values: Array-like of corresponding values.
+            **kwargs: Additional parameters for InterpolatedForcing (e.g., interpolation_method).
+            
+        Returns:
+            JAX-compiled callable function for the interpolated forcing.
+        """
+        from ..forcing.interpolated import InterpolatedForcing
+        forcing = InterpolatedForcing(times, values, **kwargs)
+        return forcing.create_function('jax')
+
+    @staticmethod
     def ZeroFunc():
         """JAX-compiled zero function."""
         @jax.jit
         def func(t):
             return 0.0
+        return func
+
+    @staticmethod
+    def ConstFunc(value):
+        """JAX-compiled constant function."""
+        value = float(value)  # Ensure value is a float for JAX compatibility
+        
+        @jax.jit
+        def func(t):
+            return value
         return func
 
     def compile_forcing_functions(self):

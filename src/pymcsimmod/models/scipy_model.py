@@ -78,6 +78,21 @@ class ScipyModel(OdeModel):
         return func
 
     @staticmethod
+    def ConstFunc(value):
+        """
+        Static method for constant forcing functions: always returns the specified value for any t input.
+        
+        Args:
+            value: The constant value to return.
+            
+        Returns:
+            Function that always returns the specified constant value.
+        """
+        def func(t):
+            return float(value)
+        return func
+
+    @staticmethod
     def NDoses(t0_list, duration, s=10.0):
         """
         Returns a function of t for multiple dosing using OnOff, with parameters fixed.
@@ -93,6 +108,23 @@ class ScipyModel(OdeModel):
         def func(t):
             return sum(ScipyModel.OnOff(t0, t0 + duration, s)(t) for t0 in t0_list)
         return func
+
+    @staticmethod
+    def InterpolatedForcing(times, values, **kwargs):
+        """
+        Create an interpolated forcing function from time-value data.
+        
+        Args:
+            times: Array-like of time points.
+            values: Array-like of corresponding values.
+            **kwargs: Additional parameters for InterpolatedForcing (e.g., interpolation_method).
+            
+        Returns:
+            Callable function for the interpolated forcing.
+        """
+        from ..forcing.interpolated import InterpolatedForcing
+        forcing = InterpolatedForcing(times, values, **kwargs)
+        return forcing.create_function('scipy')
 
     def build_context(self, state_vals, t):
         """

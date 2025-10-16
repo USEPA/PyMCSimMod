@@ -1,6 +1,7 @@
 """Forcing functions."""
 
 from .base import ForcingFunction, MultiDoseForcing, OnOffForcing, PeriodicForcing
+from .interpolated import InterpolatedForcing, create_interpolated_forcing
 
 try:
     from . import scipy_functions
@@ -12,4 +13,11 @@ try:
 except ImportError:
     jax_functions = None
 
-__all__ = ["ForcingFunction", "MultiDoseForcing", "OnOffForcing", "PeriodicForcing"]
+__all__ = [
+    "ForcingFunction", 
+    "MultiDoseForcing", 
+    "OnOffForcing", 
+    "PeriodicForcing",
+    "InterpolatedForcing",
+    "create_interpolated_forcing"
+]
