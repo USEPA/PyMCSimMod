@@ -29,10 +29,14 @@ def build_evaluation_context(
     if isinstance(state_vals, dict):
         context = state_vals.copy()
     else:
+        # Validate that state_vals and state_names have the same length
+        if len(state_vals) != len(state_names):
+            raise ValueError("state_vals and state_names must have the same length")
         context = {name: state_vals[i] for i, name in enumerate(state_names)}
     
-    # Add parameters
-    context.update(parameters)
+    # Add parameters (handle None case)
+    if parameters is not None:
+        context.update(parameters)
     
     # Add forcing function values
     if forcing_values:
@@ -57,6 +61,10 @@ def validate_context(context: dict[str, float], required_vars: list[str]) -> Non
     Raises:
         KeyError: If any required variable is missing
     """
+    # Handle None case
+    if required_vars is None:
+        return
+        
     missing = [var for var in required_vars if var not in context]
     if missing:
         raise KeyError(f"Missing required variables in context: {missing}")
