@@ -128,5 +128,27 @@ def create_zerofunc():
     
     return zero_func
 
+def create_constantfunc(val: float):
+    """
+    Create a forcing function with a constant value for scipy backend.
+    
+    Returns:
+        Function that always returns val
+    """
+    @jax.jit
+    def constant_func(t):
+        """
+        Zero function implementation.
+        
+        Args:
+            t: current time (unused)
+            
+        Returns:
+            Always returns val
+        """
+        return float(val)
+    
+    return constant_func
+
 
 __all__ = ["create_ndoses", "create_onoff", "create_perdose", "create_zerofunc"]
