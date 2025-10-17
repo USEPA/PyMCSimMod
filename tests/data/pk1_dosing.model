@@ -28,6 +28,8 @@ States = {
 Outputs = {
     C,      # Concentration in central compartment (mg/L).
     Atot,   # Total amount in system (mg).
+    C_mg,   # Concentration in mg/L
+    C_umol, # Concentration in umol/L
 };
 
 # End of OUTPUT VARIABLES.

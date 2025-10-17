@@ -24,6 +24,10 @@ class ScipyModel(OdeModel):
         """
         super().__init__(model=model)
     
+    def _get_approach(self) -> Approach:
+        """Get the evaluation approach for ScipyModel."""
+        return Approach.SCIPY
+    
     @staticmethod
     def OnOff(t0, t1, s=10.0):
         """

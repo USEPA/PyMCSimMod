@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Literal
 
 from ..parser import ModelParser
+from ..model import Approach, InitializeSection
 from .computed import ComputedModel
 from .events import DiscreteEvent
 
@@ -47,11 +48,38 @@ class OdeModel(ABC):
         Assign the parameters and initial conditions (Y0) from the model tree to the model instance.
         """
         self.parameters = self.model_tree.parameters
-        self.Y0 = self.model_tree.Y0  # dict(state_var_name: value)
+        self.Y0 = self._evaluate_Y0()  # dict(state_var_name: value)
+
+    @abstractmethod
+    def _get_approach(self) -> Approach:
+        """
+        Get the evaluation approach for this model implementation.
+        
+        Returns:
+            Approach enum indicating whether to use JAX or SCIPY evaluation.
+        """
+        raise NotImplementedError("Subclasses must implement _get_approach()")
+
+    def _evaluate_Y0(self) -> dict[str, float | int]:
+        """
+        Evaluate initial conditions from the model tree using current parameter values as context.
+        
+        Returns:
+            Dictionary where keys are state variable names and values are their evaluated initial values.
+        """
+        context = self.parameters.copy()  # Use current parameters as evaluation context
+        approach = self._get_approach()  # Get the appropriate approach from subclass
+        
+        Y0 = {}
+        for section in self.model_tree.sections:
+            if isinstance(section, InitializeSection):
+                # Use the standardized get_Y0 method from InitializeSection
+                Y0.update(section.get_Y0(context, approach))
+        return Y0
 
     def update_constants(self, **parameters: float | int) -> None:
         """
-        Update any constants in the model tree in place.
+        Update any constants in the model tree in place. Re-evaluate Y0 after updating.
 
         Args:
             **parameters: Keyword arguments where keys are parameter names and values are the new values.
@@ -65,10 +93,16 @@ class OdeModel(ABC):
 
         for key, value in parameters.items():
             self.parameters[key] = value
+        
+        # Re-evaluate Y0 in case any initial conditions depend on updated parameters
+        self.Y0 = self._evaluate_Y0()
 
     def update_Y0(self, **Y0: float | int) -> None:
         """
         Update any initial conditions in the model tree in place.
+
+        This method updates Y0 values directly and then re-evaluates all parameter-dependent
+        initial conditions to ensure consistency.
 
         Args:
             **Y0: Keyword arguments where keys are state variable names and values are the new initial values.
@@ -82,8 +116,18 @@ class OdeModel(ABC):
                 f"Initial condition(s) '{', '.join(missing)}' do not exist in the model tree."
             )
 
+        # Update the specified Y0 values
         for key, value in Y0.items():
             self.Y0[key] = value
+            
+        # Re-evaluate all Y0 values to handle parameter dependencies
+        # This ensures that if any Y0 depends on parameters, they get updated correctly
+        evaluated_Y0 = self._evaluate_Y0()
+        
+        # Keep user-specified values but update parameter-dependent ones
+        for key, value in evaluated_Y0.items():
+            if key not in Y0:  # Only update values not explicitly set by user
+                self.Y0[key] = value
 
     def add_event(self, time: float, state_var: str, value: float, method: Literal['replace', 'add', 'multiply'] = 'add') -> None:
         """

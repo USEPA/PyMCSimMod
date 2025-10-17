@@ -260,6 +260,23 @@ class InitializeSection(BaseModel):
     type: Literal["Initialize"] = "Initialize"
     statements: list[Statement]
 
+    def get_Y0(self, context, approach):
+        """
+        Evaluate initial conditions using the given context and approach.
+        
+        Args:
+            context: Dictionary of parameter values for evaluation.
+            approach: Approach enum (JAX or SCIPY) for evaluation.
+            
+        Returns:
+            Dictionary of evaluated initial conditions.
+        """
+        Y0 = {}
+        for statement in self.statements:
+            var_name = statement.lhs.eval() if hasattr(statement.lhs, 'eval') else statement.lhs.name
+            Y0[var_name] = statement.rhs.evaluate(context, approach)
+        return Y0
+
     def to_mod(self) -> str:
         return f"""Initialize {{\n{"\n".join(f"    {statement.to_mod()}" for statement in self.statements)}\n}}"""
 

@@ -194,6 +194,10 @@ class JaxModel(OdeModel):
             model: Path to model file or model string.
         """
         super().__init__(model=model)
+    
+    def _get_approach(self) -> Approach:
+        """Get the evaluation approach for JaxModel."""
+        return Approach.JAX
 
     def model(self, t: float, y, args) -> object:
         """Placeholder - actual implementation is in EqxModel."""
