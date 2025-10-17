@@ -227,9 +227,12 @@ class ScipyModel(OdeModel):
         times = np.array(times)
         y_init = np.array([self.Y0[state] for state in self.state_names])
         
+        # Disable vectorized mode for single-state models to avoid scipy numerical jacobian issues
+        # When there's only one state variable, scipy's vectorized jacobian calculation fails
+        use_vectorized = len(self.state_names) > 1
+        
         # Get all switch times (forcing functions + events)
         switch_times = self.extract_switch_times(self.forcing_functions, times[0], times[-1])
-        
         # If no events, use the original method
         if not self.events:
             t_span = np.array([times[0], times[-1]])
@@ -240,7 +243,7 @@ class ScipyModel(OdeModel):
                 t_span=t_span,
                 y0=y_init,
                 t_eval=all_times,
-                vectorized=True,
+                vectorized=use_vectorized,
                 events=events,
                 method='BDF'
             )
@@ -287,7 +290,7 @@ class ScipyModel(OdeModel):
                         t_span=[seg_start, seg_end],
                         y0=current_y,
                         t_eval=seg_all_times,
-                        vectorized=True,
+                        vectorized=use_vectorized,
                         events=seg_events,
                         method='BDF'
                     )
@@ -297,12 +300,18 @@ class ScipyModel(OdeModel):
                     
                     # Update current state to end of segment
                     current_y = seg_sol.y[:, -1]
+                    # Ensure proper shape for vectorized operations if needed
+                    if use_vectorized and current_y.ndim == 1:
+                        current_y = current_y.reshape(-1, 1)
                 
                 # Apply events at seg_end if there are any
                 if seg_end in event_times:
                     state_dict = {name: current_y[i] for i, name in enumerate(self.state_names)}
                     state_dict = self.apply_events_at_time(seg_end, state_dict)
                     current_y = np.array([state_dict[name] for name in self.state_names])
+                    # Ensure proper shape for vectorized operations if needed
+                    if use_vectorized and current_y.ndim == 1:
+                        current_y = current_y.reshape(-1, 1)
             
             # Combine all solutions
             if all_sol_times:
@@ -323,7 +332,7 @@ class ScipyModel(OdeModel):
                     t_span=[times[0], times[-1]],
                     y0=y_init,
                     t_eval=times,
-                    vectorized=True,
+                    vectorized=use_vectorized,
                     method='BDF'
                 )
         

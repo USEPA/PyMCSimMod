@@ -324,6 +324,150 @@ class TestScipyModel:
             assert result.aux_outputs.shape[0] == len(times)
             assert len(result.aux_names) > 0
 
+    def test_single_state_vectorized_solver(self):
+        """Test that single-state models work correctly with vectorized scipy solver."""
+        # Simple model with one state variable - this was failing before the fix
+        model_str = """
+        States = {
+            y
+        };
+        y0 = 2;
+        m = 0.5;
+        Initialize {
+            y = y0;
+        }
+        Dynamics {
+            dt(y) = m;
+        }
+        End.
+        """
+        
+        model = ScipyModel(model_str)
+        model.update_constants(m=1.0, y0=5.0)
+        
+        # Test with various time ranges to ensure robustness
+        time_ranges = [
+            np.arange(0, 20.1, 0.1),  # Original failing case
+            np.linspace(0, 10, 5),    # Short range
+            np.array([0, 1, 2]),      # Just a few points
+            np.array([0, 5]),         # Two points
+        ]
+        
+        for times in time_ranges:
+            result = model.run_model(times)
+            
+            # Verify the result structure
+            assert isinstance(result, ComputedModel)
+            assert len(result.times) == len(times)
+            assert result.states.shape == (len(times), 1)
+            assert 'y' in result.dataframe.columns
+            
+            # Verify analytical solution: y(t) = y0 + m*t = 5 + 1*t
+            expected_final = 5.0 + 1.0 * times[-1]
+            actual_final = result.dataframe['y'].iloc[-1]
+            np.testing.assert_allclose(actual_final, expected_final, rtol=1e-10)
+
+    def test_multi_state_vectorized_solver(self):
+        """Test that multi-state models still work correctly with vectorized solver."""
+        # Two-state model to ensure no regression
+        model_str = """
+        States = {
+            x, y
+        };
+        x0 = 1;
+        y0 = 2;
+        k1 = 0.5;
+        k2 = 0.3;
+        Initialize {
+            x = x0;
+            y = y0;
+        }
+        Dynamics {
+            dt(x) = -k1 * x;
+            dt(y) = k1 * x - k2 * y;
+        }
+        End.
+        """
+        
+        model = ScipyModel(model_str)
+        times = np.linspace(0, 10, 50)
+        
+        result = model.run_model(times)
+        
+        # Verify the result structure
+        assert isinstance(result, ComputedModel)
+        assert len(result.times) == len(times)
+        assert result.states.shape == (len(times), 2)
+        assert 'x' in result.dataframe.columns
+        assert 'y' in result.dataframe.columns
+        
+        # Verify that x is decreasing (should decay exponentially)
+        x_vals = result.dataframe['x'].values
+        assert x_vals[0] > x_vals[-1]  # x should decrease
+        assert np.all(x_vals >= 0)     # x should stay non-negative
+        
+        # Verify physical constraint: mass balance should be preserved
+        # Total amount should equal x + y + integral of k2*y (loss term)
+        # For this simple test, just verify that x and y behave reasonably
+        y_vals = result.dataframe['y'].values
+        assert y_vals[0] == 2.0  # Initial condition
+        assert np.all(y_vals >= 0)  # y should stay non-negative
+
+    def test_single_state_with_events(self):
+        """Test single-state model with events to ensure event handling works correctly."""
+        model_str = """
+        States = {
+            A
+        };
+        
+        Initialize {
+            A = 0.0;
+        }
+        
+        Dynamics {
+            dt(A) = 1.0;  # Simple accumulation
+        }
+        
+        End.
+        """
+        
+        model = ScipyModel(model_str)
+        
+        # Add an event that changes A at t=5
+        model.add_event(time=5.0, state_var="A", value=10.0, method="replace")
+        
+        times = np.linspace(0, 10, 21)
+        result = model.run_model(times)
+        
+        # Verify the result structure
+        assert isinstance(result, ComputedModel)
+        # Events can add duplicate time points, so result may have more time points than input
+        assert len(result.times) >= len(times)
+        assert result.states.shape == (len(result.times), 1)
+        
+        # Find the closest time point to t=5 and ensure event occurred
+        event_idx = np.argmin(np.abs(result.times - 5.0))
+        
+        # Before the event, A should be approximately equal to time
+        pre_event_idx = max(0, event_idx - 1)
+        if result.times[pre_event_idx] < 5.0:
+            np.testing.assert_allclose(
+                result.dataframe['A'].iloc[pre_event_idx], 
+                result.times[pre_event_idx], 
+                rtol=1e-2
+            )
+        
+        # After the event, A should be significantly higher due to the reset
+        post_event_idx = min(len(result.times) - 1, event_idx + 1)
+        if result.times[post_event_idx] > 5.0:
+            # A should be approximately 10 + (t - 5) after the event
+            expected_a = 10.0 + (result.times[post_event_idx] - 5.0)
+            np.testing.assert_allclose(
+                result.dataframe['A'].iloc[post_event_idx], 
+                expected_a, 
+                rtol=1e-2
+            )
+
 
 class TestScipyModelErrorHandling:
     """Tests for scipy model error handling."""

@@ -450,6 +450,92 @@ class TestJaxModel:
         assert len(result.times) == len(times)
         assert result.states.shape[0] == len(times)
 
+    def test_single_state_jax_model(self):
+        """Test that single-state models work correctly with JAX."""
+        # Simple model with one state variable
+        model_str = """
+        States = {
+            y
+        };
+        y0 = 2;
+        m = 0.5;
+        Initialize {
+            y = y0;
+        }
+        Dynamics {
+            dt(y) = m;
+        }
+        End.
+        """
+        
+        model = JaxModel(model_str)
+        model.update_constants(m=1.0, y0=5.0)
+        
+        # Test with various time ranges
+        time_ranges = [
+            np.linspace(0, 10, 20),   # Standard range
+            np.array([0, 1, 2]),      # Just a few points
+            np.array([0, 5]),         # Two points
+        ]
+        
+        for times in time_ranges:
+            result = model.run_model(times)
+            
+            # Verify the result structure
+            assert isinstance(result, ComputedModel)
+            assert len(result.times) == len(times)
+            assert result.states.shape == (len(times), 1)
+            assert 'y' in result.dataframe.columns
+            
+            # Verify analytical solution: y(t) = y0 + m*t = 5 + 1*t
+            expected_final = 5.0 + 1.0 * times[-1]
+            actual_final = result.dataframe['y'].iloc[-1]
+            np.testing.assert_allclose(actual_final, expected_final, rtol=1e-5)
+
+    def test_multi_state_jax_model(self):
+        """Test that multi-state models work correctly with JAX."""
+        # Two-state model
+        model_str = """
+        States = {
+            x, y
+        };
+        x0 = 1;
+        y0 = 2;
+        k1 = 0.5;
+        k2 = 0.3;
+        Initialize {
+            x = x0;
+            y = y0;
+        }
+        Dynamics {
+            dt(x) = -k1 * x;
+            dt(y) = k1 * x - k2 * y;
+        }
+        End.
+        """
+        
+        model = JaxModel(model_str)
+        times = np.linspace(0, 10, 50)
+        
+        result = model.run_model(times)
+        
+        # Verify the result structure
+        assert isinstance(result, ComputedModel)
+        assert len(result.times) == len(times)
+        assert result.states.shape == (len(times), 2)
+        assert 'x' in result.dataframe.columns
+        assert 'y' in result.dataframe.columns
+        
+        # Verify that x is decreasing (should decay exponentially)
+        x_vals = result.dataframe['x'].values
+        assert x_vals[0] > x_vals[-1]  # x should decrease
+        assert np.all(x_vals >= 0)     # x should stay non-negative
+        
+        # Verify physical constraint
+        y_vals = result.dataframe['y'].values
+        assert y_vals[0] == 2.0  # Initial condition
+        assert np.all(y_vals >= 0)  # y should stay non-negative
+
 
 class TestJaxCompatibility:
     """JAX compatibility tests integrated into the test suite."""
