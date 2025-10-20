@@ -18,11 +18,11 @@ __version__ = "0.0.1"
 def create_model(model_source: str | Path, backend: str = "scipy") -> OdeModel:
     """
     Create a model with the specified backend.
-    
+
     Args:
         model_source: Path to model file or model string
         backend: 'scipy' or 'jax'
-    
+
     Returns:
         OdeModel instance with the appropriate backend
     """

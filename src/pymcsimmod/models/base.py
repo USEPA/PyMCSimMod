@@ -5,15 +5,15 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal
 
-from ..parser import ModelParser
 from ..model import Approach, InitializeSection
+from ..parser import ModelParser
 from .computed import ComputedModel
 from .events import DiscreteEvent
 
 
 class OdeModel(ABC):
     """Abstract base class for ODE models."""
-    
+
     def __init__(self, model: str | Path):
         """
         Load and parse a model from a file path or string, initializing parameters and initial conditions.
@@ -37,7 +37,7 @@ class OdeModel(ABC):
         self.dep_var_indices = {name: i for i, name in enumerate(self.state_names)}
         # Assign default forcing functions: all inputs get ZeroFunc with correct dict structure
         self.forcing_functions = {
-            input_name: {'function': 'ZeroFunc', 'args': (), 'kwargs': {}}
+            input_name: {"function": "ZeroFunc", "args": (), "kwargs": {}}
             for input_name in self.inputs
         }
         # Initialize events list
@@ -54,7 +54,7 @@ class OdeModel(ABC):
     def _get_approach(self) -> Approach:
         """
         Get the evaluation approach for this model implementation.
-        
+
         Returns:
             Approach enum indicating whether to use JAX or SCIPY evaluation.
         """
@@ -63,13 +63,13 @@ class OdeModel(ABC):
     def _evaluate_Y0(self) -> dict[str, float | int]:
         """
         Evaluate initial conditions from the model tree using current parameter values as context.
-        
+
         Returns:
             Dictionary where keys are state variable names and values are their evaluated initial values.
         """
         context = self.parameters.copy()  # Use current parameters as evaluation context
         approach = self._get_approach()  # Get the appropriate approach from subclass
-        
+
         Y0 = {}
         for section in self.model_tree.sections:
             if isinstance(section, InitializeSection):
@@ -93,7 +93,7 @@ class OdeModel(ABC):
 
         for key, value in parameters.items():
             self.parameters[key] = value
-        
+
         # Re-evaluate Y0 in case any initial conditions depend on updated parameters
         self.Y0 = self._evaluate_Y0()
 
@@ -119,32 +119,40 @@ class OdeModel(ABC):
         # Update the specified Y0 values
         for key, value in Y0.items():
             self.Y0[key] = value
-            
+
         # Re-evaluate all Y0 values to handle parameter dependencies
         # This ensures that if any Y0 depends on parameters, they get updated correctly
         evaluated_Y0 = self._evaluate_Y0()
-        
+
         # Keep user-specified values but update parameter-dependent ones
         for key, value in evaluated_Y0.items():
             if key not in Y0:  # Only update values not explicitly set by user
                 self.Y0[key] = value
 
-    def add_event(self, time: float, state_var: str, value: float, method: Literal['replace', 'add', 'multiply'] = 'add') -> None:
+    def add_event(
+        self,
+        time: float,
+        state_var: str,
+        value: float,
+        method: Literal["replace", "add", "multiply"] = "add",
+    ) -> None:
         """
         Add a discrete event to occur at a specific time.
-        
+
         Args:
             time: Time at which the event occurs.
             state_var: Name of the state variable to modify.
             value: Value to use in the operation.
             method: Type of operation ('replace', 'add', 'multiply').
-            
+
         Raises:
             KeyError: If state_var is not a valid state variable.
         """
         if state_var not in self.state_names:
-            raise KeyError(f"State variable '{state_var}' not found. Valid state variables: {self.state_names}")
-        
+            raise KeyError(
+                f"State variable '{state_var}' not found. Valid state variables: {self.state_names}"
+            )
+
         event = DiscreteEvent(time=time, state_var=state_var, value=value, method=method)
         self.events.append(event)
         # Keep events sorted by time for efficient processing
@@ -157,11 +165,11 @@ class OdeModel(ABC):
     def get_event_times(self, t_start: float, t_end: float) -> list[float]:
         """
         Get all event times within the specified time range.
-        
+
         Args:
             t_start: Start time.
             t_end: End time.
-            
+
         Returns:
             List of event times within [t_start, t_end].
         """
@@ -170,11 +178,11 @@ class OdeModel(ABC):
     def apply_events_at_time(self, t: float, state_dict: dict[str, float]) -> dict[str, float]:
         """
         Apply all events that occur at time t.
-        
+
         Args:
             t: Current time.
             state_dict: Current state as a dictionary.
-            
+
         Returns:
             Updated state dictionary after applying events.
         """
@@ -187,11 +195,11 @@ class OdeModel(ABC):
     def assign_forcing_function(self, input_name, forcing_function_name=None, *args, **kwargs):
         """
         Assign a forcing function to an input variable, storing only the function name and parameters (not the factory or callable).
-        
+
         This method supports two usage patterns:
         1. Traditional forcing functions: assign_forcing_function('input', 'PerDose', t0=0, duration=1, period=24)
         2. Interpolated forcing: assign_forcing_function('input', times=[0,1,2], values=[10,20,30])
-        
+
         Args:
             input_name: Name of the input variable to assign the forcing function to.
             forcing_function_name: Name of the forcing function ('PerDose', 'NDoses', etc.) OR
@@ -201,28 +209,30 @@ class OdeModel(ABC):
         Raises:
             ValueError: If input_name is not in self.inputs or invalid parameters provided.
         """
-        if not hasattr(self, 'forcing_functions'):
+        if not hasattr(self, "forcing_functions"):
             self.forcing_functions = {}
         if input_name not in self.inputs:
-            raise ValueError(f"'{input_name}' is not a valid input variable. Valid inputs: {self.inputs}")
-        
+            raise ValueError(
+                f"'{input_name}' is not a valid input variable. Valid inputs: {self.inputs}"
+            )
+
         # Check if this is interpolated forcing (times and values provided)
-        times = kwargs.get('times')
-        if times is None and isinstance(forcing_function_name, (list, tuple)):
+        times = kwargs.get("times")
+        if times is None and isinstance(forcing_function_name, list | tuple):
             times = forcing_function_name
-        values = kwargs.get('values')
-        
+        values = kwargs.get("values")
+
         if times is not None and values is not None:
             # This is interpolated forcing
             # Remove times and values from kwargs if they exist
             interp_kwargs = kwargs.copy()
-            interp_kwargs.pop('times', None)
-            interp_kwargs.pop('values', None)
-            
+            interp_kwargs.pop("times", None)
+            interp_kwargs.pop("values", None)
+
             self.forcing_functions[input_name] = {
-                'function': 'InterpolatedForcing',
-                'args': (times, values),
-                'kwargs': interp_kwargs
+                "function": "InterpolatedForcing",
+                "args": (times, values),
+                "kwargs": interp_kwargs,
             }
         elif times is not None and values is None:
             raise ValueError("Both 'times' and 'values' must be provided for interpolated forcing")
@@ -231,34 +241,34 @@ class OdeModel(ABC):
         else:
             # Traditional forcing function
             self.forcing_functions[input_name] = {
-                'function': forcing_function_name,
-                'args': args,
-                'kwargs': kwargs
+                "function": forcing_function_name,
+                "args": args,
+                "kwargs": kwargs,
             }
 
     def extract_switch_times(self, forcing_functions, t_start, t_end):
         """
         Extract switching times from forcing functions and discrete events.
-        
+
         Args:
             forcing_functions: Dictionary of forcing function specifications.
             t_start: Start time for extraction.
             t_end: End time for extraction.
-            
+
         Returns:
             Sorted list of switch times within [t_start, t_end].
         """
         switch_times = set()
-        
+
         # Add forcing function switch times
         for ff in forcing_functions.values():
-            if isinstance(ff, dict) and 'function' in ff:
-                func = ff['function']
-                kwargs = ff.get('kwargs', {})
-                if func == 'PerDose':
-                    t0 = kwargs['t0']
-                    duration = kwargs['duration']
-                    period = kwargs['period']
+            if isinstance(ff, dict) and "function" in ff:
+                func = ff["function"]
+                kwargs = ff.get("kwargs", {})
+                if func == "PerDose":
+                    t0 = kwargs["t0"]
+                    duration = kwargs["duration"]
+                    period = kwargs["period"]
                     n = 0
                     while True:
                         on = t0 + n * period
@@ -270,9 +280,9 @@ class OdeModel(ABC):
                         if off >= t_start and off <= t_end:
                             switch_times.add(off)
                         n += 1
-                elif func == 'NDoses':
-                    t0_list = kwargs['t0_list']
-                    duration = kwargs['duration']
+                elif func == "NDoses":
+                    t0_list = kwargs["t0_list"]
+                    duration = kwargs["duration"]
                     for t0 in t0_list:
                         on = t0
                         off = t0 + duration
@@ -280,24 +290,24 @@ class OdeModel(ABC):
                             switch_times.add(on)
                         if off >= t_start and off <= t_end:
                             switch_times.add(off)
-                elif func == 'OnOff':
-                    t0 = kwargs['t0']
-                    t1 = kwargs['t1']
+                elif func == "OnOff":
+                    t0 = kwargs["t0"]
+                    t1 = kwargs["t1"]
                     if t0 >= t_start and t0 <= t_end:
                         switch_times.add(t0)
                     if t1 >= t_start and t1 <= t_end:
                         switch_times.add(t1)
-                elif func == 'InterpolatedForcing':
+                elif func == "InterpolatedForcing":
                     # For interpolated forcing, add the data time points as switch times
-                    times_data = ff['args'][0] if len(ff['args']) > 0 else []
+                    times_data = ff["args"][0] if len(ff["args"]) > 0 else []
                     for t in times_data:
                         if t >= t_start and t <= t_end:
                             switch_times.add(t)
-        
+
         # Add event times
         event_times = self.get_event_times(t_start, t_end)
         switch_times.update(event_times)
-        
+
         return sorted(switch_times)
 
     @abstractmethod

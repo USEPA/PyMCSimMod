@@ -10,13 +10,13 @@ import jax.numpy as jnp
 import numpy as np
 
 from ..model import Approach
-from ..parser import ModelParser
 from .base import OdeModel
 from .computed import ComputedModel
 
+
 class EqxModel(eqx.Module):
     """Modern JAX model using equinox with event handling awareness."""
-    
+
     parameters: dict = eqx.field()  # Constants
     forcing_functions: dict = eqx.field()  # Forcing functions for inputs
     Y0: dict = eqx.field()  # State variable initial conditions
@@ -40,7 +40,7 @@ class EqxModel(eqx.Module):
         t0 = float(t0)
         duration = float(duration)
         period = float(period)
-        
+
         @jax.jit
         def func(t):
             t = jnp.asarray(t)
@@ -48,6 +48,7 @@ class EqxModel(eqx.Module):
             start = t0 + n * period
             stop = start + duration
             return EqxModel.OnOff(t, start, stop, s)
+
         return func
 
     @staticmethod
@@ -55,46 +56,51 @@ class EqxModel(eqx.Module):
         """JAX-compiled multiple dosing function."""
         t0_arr = jnp.array(t0_list)
         duration = float(duration)
-        
+
         @jax.jit
         def func(t):
             t = jnp.asarray(t)
             return jnp.sum(EqxModel.OnOff(t, t0_arr, t0_arr + duration, s), axis=-1)
+
         return func
 
     @staticmethod
     def InterpolatedForcing(times, values, **kwargs):
         """
         Create an interpolated forcing function from time-value data for JAX.
-        
+
         Args:
             times: Array-like of time points.
             values: Array-like of corresponding values.
             **kwargs: Additional parameters for InterpolatedForcing (e.g., interpolation_method).
-            
+
         Returns:
             JAX-compiled callable function for the interpolated forcing.
         """
         from ..forcing.interpolated import InterpolatedForcing
+
         forcing = InterpolatedForcing(times, values, **kwargs)
-        return forcing.create_function('jax')
+        return forcing.create_function("jax")
 
     @staticmethod
     def ZeroFunc():
         """JAX-compiled zero function."""
+
         @jax.jit
         def func(t):
             return 0.0
+
         return func
 
     @staticmethod
     def ConstFunc(value):
         """JAX-compiled constant function."""
         value = float(value)  # Ensure value is a float for JAX compatibility
-        
+
         @jax.jit
         def func(t):
             return value
+
         return func
 
     def compile_forcing_functions(self):
@@ -104,13 +110,11 @@ class EqxModel(eqx.Module):
         for input_name, ff in self.forcing_functions.items():
             # Check if it's a dict-like forcing function specification
             # Use duck typing with specific attribute checks instead of isinstance
-            if (hasattr(ff, 'get') and
-                hasattr(ff, '__getitem__') and
-                'function' in ff):
+            if hasattr(ff, "get") and hasattr(ff, "__getitem__") and "function" in ff:
                 # It's a forcing function specification dict
-                func_name = ff['function']
-                args = ff.get('args', ())
-                kwargs = ff.get('kwargs', {})
+                func_name = ff["function"]
+                args = ff.get("args", ())
+                kwargs = ff.get("kwargs", {})
                 func_factory = getattr(self, func_name, None)
                 if func_factory is None or not callable(func_factory):
                     raise AttributeError(f"Forcing function '{func_name}' not found in EqxModel.")
@@ -118,10 +122,10 @@ class EqxModel(eqx.Module):
             else:
                 # It's already a compiled function or other callable
                 compiled_functions[input_name] = ff
-        
+
         # Replace forcing_functions with compiled version
         # forcing_functions must be immutable, so use object.__setattr__
-        object.__setattr__(self, 'forcing_functions', compiled_functions)
+        object.__setattr__(self, "forcing_functions", compiled_functions)
 
     def build_context(self, state_vals, t):
         """Build context dictionary for expression evaluation (JAX-compatible)."""
@@ -134,7 +138,7 @@ class EqxModel(eqx.Module):
         # Evaluate all dynamic calcs
         for var, expr in self.model_tree.dynamic_calcs.items():
             context[var] = expr.evaluate(context, Approach.JAX)
-        if hasattr(self.model_tree, 'calc_outputs'):
+        if hasattr(self.model_tree, "calc_outputs"):
             for var, expr in self.model_tree.calc_outputs.items():
                 context[var] = expr.evaluate(context, Approach.JAX)
         return context
@@ -143,7 +147,10 @@ class EqxModel(eqx.Module):
     def model(self, t, y):
         """JAX-compiled ODE right-hand side function."""
         context = self.build_context(y, t)
-        dydt = [self.model_tree.dynamics[state].evaluate(context, Approach.JAX) for state in self.state_names]
+        dydt = [
+            self.model_tree.dynamics[state].evaluate(context, Approach.JAX)
+            for state in self.state_names
+        ]
         return jnp.stack(dydt)
 
     def run_model(self, times):
@@ -185,7 +192,7 @@ class EqxModel(eqx.Module):
 
 class JaxModel(OdeModel):
     """JAX-based ODE model implementation."""
-    
+
     def __init__(self, model: str | Path):
         """
         Initialize a JaxModel from a model string or file.
@@ -194,7 +201,7 @@ class JaxModel(OdeModel):
             model: Path to model file or model string.
         """
         super().__init__(model=model)
-    
+
     def _get_approach(self) -> Approach:
         """Get the evaluation approach for JaxModel."""
         return Approach.JAX
@@ -234,7 +241,8 @@ class JaxModel(OdeModel):
             events=self.events.copy(),
             model_tree=self.model_tree,
             state_names=tuple(self.state_names),
-            output_names=tuple(self.outputs)
+            output_names=tuple(self.outputs),
         )
+
 
 __all__ = ["EqxModel", "JaxModel"]

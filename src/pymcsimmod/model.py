@@ -263,17 +263,19 @@ class InitializeSection(BaseModel):
     def get_Y0(self, context, approach):
         """
         Evaluate initial conditions using the given context and approach.
-        
+
         Args:
             context: Dictionary of parameter values for evaluation.
             approach: Approach enum (JAX or SCIPY) for evaluation.
-            
+
         Returns:
             Dictionary of evaluated initial conditions.
         """
         Y0 = {}
         for statement in self.statements:
-            var_name = statement.lhs.eval() if hasattr(statement.lhs, 'eval') else statement.lhs.name
+            var_name = (
+                statement.lhs.eval() if hasattr(statement.lhs, "eval") else statement.lhs.name
+            )
             Y0[var_name] = statement.rhs.evaluate(context, approach)
         return Y0
 
@@ -363,7 +365,7 @@ class Model(BaseModel):
                     self._inputs = [declaration.name for declaration in section.declarations]
                     break
         return self._inputs
-    
+
     @property
     def outputs(self) -> list[str]:
         """
@@ -426,7 +428,7 @@ class Model(BaseModel):
                             dynamics_calcs[variable] = statement.rhs
             self._dynamics_calcs = dynamics_calcs
         return self._dynamics_calcs
-    
+
     @property
     def calc_outputs(self) -> dict[str, MathematicalExpression]:
         """

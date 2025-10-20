@@ -25,45 +25,48 @@ from .parser import ModelParser
 class DiscreteEvent(BaseModel):
     """
     Represents a discrete event similar to deSolve's event handling.
-    
+
     Attributes:
         time: Time at which the event occurs.
         state_var: Name of the state variable to modify.
         value: Value to use in the operation.
         method: Type of operation ('replace', 'add', 'multiply').
     """
+
     time: float
     state_var: str
     value: float
-    method: Literal['replace', 'add', 'multiply'] = 'add'
+    method: Literal["replace", "add", "multiply"] = "add"
 
     def apply(self, state_dict: dict[str, float], state_names: list[str]) -> dict[str, float]:
         """
         Apply the event to a state dictionary.
-        
+
         Args:
             state_dict: Dictionary mapping state variable names to values.
             state_names: List of state variable names for validation.
-            
+
         Returns:
             Updated state dictionary.
-            
+
         Raises:
             KeyError: If state_var is not in state_names.
         """
         if self.state_var not in state_names:
-            raise KeyError(f"State variable '{self.state_var}' not found in model state variables: {state_names}")
-        
+            raise KeyError(
+                f"State variable '{self.state_var}' not found in model state variables: {state_names}"
+            )
+
         new_state = state_dict.copy()
         current_value = new_state[self.state_var]
-        
-        if self.method == 'replace':
+
+        if self.method == "replace":
             new_state[self.state_var] = self.value
-        elif self.method == 'add':
+        elif self.method == "add":
             new_state[self.state_var] = current_value + self.value
-        elif self.method == 'multiply':
+        elif self.method == "multiply":
             new_state[self.state_var] = current_value * self.value
-        
+
         return new_state
 
 
@@ -263,7 +266,7 @@ class OdeModel(ABC):
         self.dep_var_indices = {name: i for i, name in enumerate(self.state_names)}
         # Assign default forcing functions: all inputs get ZeroFunc with correct dict structure
         self.forcing_functions = {
-            input_name: {'function': 'ZeroFunc', 'args': (), 'kwargs': {}}
+            input_name: {"function": "ZeroFunc", "args": (), "kwargs": {}}
             for input_name in self.inputs
         }
         # Initialize events list
@@ -312,22 +315,30 @@ class OdeModel(ABC):
         for key, value in Y0.items():
             self.Y0[key] = value
 
-    def add_event(self, time: float, state_var: str, value: float, method: Literal['replace', 'add', 'multiply'] = 'add') -> None:
+    def add_event(
+        self,
+        time: float,
+        state_var: str,
+        value: float,
+        method: Literal["replace", "add", "multiply"] = "add",
+    ) -> None:
         """
         Add a discrete event to occur at a specific time.
-        
+
         Args:
             time: Time at which the event occurs.
             state_var: Name of the state variable to modify.
             value: Value to use in the operation.
             method: Type of operation ('replace', 'add', 'multiply').
-            
+
         Raises:
             KeyError: If state_var is not a valid state variable.
         """
         if state_var not in self.state_names:
-            raise KeyError(f"State variable '{state_var}' not found. Valid state variables: {self.state_names}")
-        
+            raise KeyError(
+                f"State variable '{state_var}' not found. Valid state variables: {self.state_names}"
+            )
+
         event = DiscreteEvent(time=time, state_var=state_var, value=value, method=method)
         self.events.append(event)
         # Keep events sorted by time for efficient processing
@@ -340,11 +351,11 @@ class OdeModel(ABC):
     def get_event_times(self, t_start: float, t_end: float) -> list[float]:
         """
         Get all event times within the specified time range.
-        
+
         Args:
             t_start: Start time.
             t_end: End time.
-            
+
         Returns:
             List of event times within [t_start, t_end].
         """
@@ -353,11 +364,11 @@ class OdeModel(ABC):
     def apply_events_at_time(self, t: float, state_dict: dict[str, float]) -> dict[str, float]:
         """
         Apply all events that occur at time t.
-        
+
         Args:
             t: Current time.
             state_dict: Current state as a dictionary.
-            
+
         Returns:
             Updated state dictionary after applying events.
         """
@@ -377,41 +388,42 @@ class OdeModel(ABC):
         Raises:
             ValueError: If input_name is not in self.inputs.
         """
-        if not hasattr(self, 'forcing_functions'):
+        if not hasattr(self, "forcing_functions"):
             self.forcing_functions = {}
         if input_name not in self.inputs:
-            raise ValueError(f"'{input_name}' is not a valid input variable. Valid inputs: {self.inputs}")
+            raise ValueError(
+                f"'{input_name}' is not a valid input variable. Valid inputs: {self.inputs}"
+            )
         # Only store the function name and parameters; do not check or call the factory here
         self.forcing_functions[input_name] = {
-            'function': forcing_function_name,
-            'args': args,
-            'kwargs': kwargs
+            "function": forcing_function_name,
+            "args": args,
+            "kwargs": kwargs,
         }
 
     def extract_switch_times(self, forcing_functions, t_start, t_end):
         """
         Extract switching times from forcing functions and discrete events.
-        
+
         Args:
             forcing_functions: Dictionary of forcing function specifications.
             t_start: Start time for extraction.
             t_end: End time for extraction.
-            
+
         Returns:
             Sorted list of switch times within [t_start, t_end].
         """
         switch_times = set()
-        
+
         # Add forcing function switch times
         for ff in forcing_functions.values():
-            if isinstance(ff, dict) and 'function' in ff:
-                func = ff['function']
-                args = ff.get('args', ())
-                kwargs = ff.get('kwargs', {})
-                if func == 'PerDose':
-                    t0 = kwargs['t0']
-                    duration = kwargs['duration']
-                    period = kwargs['period']
+            if isinstance(ff, dict) and "function" in ff:
+                func = ff["function"]
+                kwargs = ff.get("kwargs", {})
+                if func == "PerDose":
+                    t0 = kwargs["t0"]
+                    duration = kwargs["duration"]
+                    period = kwargs["period"]
                     n = 0
                     while True:
                         on = t0 + n * period
@@ -423,9 +435,9 @@ class OdeModel(ABC):
                         if off >= t_start and off <= t_end:
                             switch_times.add(off)
                         n += 1
-                elif func == 'NDoses':
-                    t0_list = kwargs['t0_list']
-                    duration = kwargs['duration']
+                elif func == "NDoses":
+                    t0_list = kwargs["t0_list"]
+                    duration = kwargs["duration"]
                     for t0 in t0_list:
                         on = t0
                         off = t0 + duration
@@ -433,18 +445,18 @@ class OdeModel(ABC):
                             switch_times.add(on)
                         if off >= t_start and off <= t_end:
                             switch_times.add(off)
-                elif func == 'OnOff':
-                    t0 = kwargs['t0']
-                    t1 = kwargs['t1']
+                elif func == "OnOff":
+                    t0 = kwargs["t0"]
+                    t1 = kwargs["t1"]
                     if t0 >= t_start and t0 <= t_end:
                         switch_times.add(t0)
                     if t1 >= t_start and t1 <= t_end:
                         switch_times.add(t1)
-        
+
         # Add event times
         event_times = self.get_event_times(t_start, t_end)
         switch_times.update(event_times)
-        
+
         return sorted(switch_times)
 
     @abstractmethod
@@ -476,6 +488,7 @@ class OdeModel(ABC):
             ComputedModel instance containing the solution.
         """
         raise NotImplementedError("This method should be implemented in a subclass.")
+
 
 class JaxModelEqx(eqx.Module):
     parameters: dict = eqx.field()
@@ -521,7 +534,9 @@ class JaxModelEqx(eqx.Module):
     def update_Y0(self, **Y0: float | int):
         missing = [key for key in Y0 if key not in self.Y0]
         if missing:
-            raise KeyError(f"Initial condition(s) '{', '.join(missing)}' do not exist in the model tree.")
+            raise KeyError(
+                f"Initial condition(s) '{', '.join(missing)}' do not exist in the model tree."
+            )
         new_Y0 = self.Y0.copy()
         new_Y0.update(Y0)
         return eqx.tree_at(lambda m: m.Y0, self, replace=new_Y0)
@@ -532,10 +547,14 @@ class JaxModelEqx(eqx.Module):
         This replaces the entire forcing_functions dict with a new one containing the updated function for the given input.
         """
         if input_name not in self.inputs:
-            raise ValueError(f"'{input_name}' is not a valid input variable. Valid inputs: {self.inputs}")
+            raise ValueError(
+                f"'{input_name}' is not a valid input variable. Valid inputs: {self.inputs}"
+            )
         func_factory = getattr(self, forcing_function_name, None)
         if func_factory is None or not callable(func_factory):
-            raise AttributeError(f"Forcing function '{forcing_function_name}' not found in JaxModelEqx.")
+            raise AttributeError(
+                f"Forcing function '{forcing_function_name}' not found in JaxModelEqx."
+            )
         # Only update the single input, replacing the entire dict
         new_ff = {**self.forcing_functions, input_name: func_factory(*args, **kwargs)}
         return eqx.tree_at(lambda m: m.forcing_functions, self, replace=new_ff)
@@ -552,21 +571,25 @@ class JaxModelEqx(eqx.Module):
         t0 = float(t0)
         duration = float(duration)
         period = float(period)
+
         def func(t):
             t = jnp.asarray(t)
             n = jnp.floor((t - t0) / period)
             start = t0 + n * period
             stop = start + duration
             return JaxModelEqx.OnOff(t, start, stop, s)
+
         return func
 
     @staticmethod
     def NDoses(t0_list, duration, s=10.0):
         t0_arr = jnp.array(t0_list)
         duration = float(duration)
+
         def func(t):
             t = jnp.asarray(t)
             return jnp.sum(JaxModelEqx.OnOff(t, t0_arr, t0_arr + duration, s), axis=-1)
+
         return func
 
     def _build_context_and_dydt(self, all_vars, t):
@@ -601,22 +624,35 @@ class JaxModelEqx(eqx.Module):
         t0 = float(times[0])
         t_end = float(times[-1])
         y_init = jnp.asarray([self.Y0[state] for state in self.state_names], dtype=jnp.float32)
-        param_vals = jnp.asarray([self.parameters[name] for name in self.param_names], dtype=jnp.float32)
+        param_vals = jnp.asarray(
+            [self.parameters[name] for name in self.param_names], dtype=jnp.float32
+        )
+
         @jax.jit
         def ode_rhs(t, y, args):
             return self.model(t, y, args[0])
+
         ode_term = diffrax.ODETerm(ode_rhs)
         solver = diffrax.Dopri8()
         saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t_end, len(times)))
         sol = diffrax.diffeqsolve(
-            ode_term, solver, t0=t0, t1=t_end, dt0=0.01, y0=y_init, saveat=saveat, args=(param_vals,)
+            ode_term,
+            solver,
+            t0=t0,
+            t1=t_end,
+            dt0=0.01,
+            y0=y_init,
+            saveat=saveat,
+            args=(param_vals,),
         )
-        #self.sol = sol
+
+        # self.sol = sol
         @jax.jit
         def calc_dyn_single(state_vals, t):
             all_vars = jnp.concatenate([state_vals, param_vals])
             context, _ = self._build_context_and_dydt(all_vars, t)
             return jnp.array([context[cname] for cname in self.calc_names], dtype=jnp.float32)
+
         calc_dyn_jax = jax.vmap(calc_dyn_single, in_axes=(0, 0))(sol.ys, sol.ts)
         calc_dyn = np.asarray(calc_dyn_jax)
         return ComputedModel(
@@ -627,12 +663,12 @@ class JaxModelEqx(eqx.Module):
             aux_names=self.calc_names,
         )
 
+
 class EqxModel(eqx.Module):
-    
-    parameters: dict = eqx.field() # Constants
-    forcing_functions: dict = eqx.field() # Forcing functions for inputs
-    Y0: dict = eqx.field() # State variable initial conditions
-    events: list = eqx.field() # Discrete events
+    parameters: dict = eqx.field()  # Constants
+    forcing_functions: dict = eqx.field()  # Forcing functions for inputs
+    Y0: dict = eqx.field()  # State variable initial conditions
+    events: list = eqx.field()  # Discrete events
     model_tree: object = eqx.static_field()
     state_names: tuple = eqx.field()
     output_names: tuple = eqx.field()
@@ -650,6 +686,7 @@ class EqxModel(eqx.Module):
         t0 = float(t0)
         duration = float(duration)
         period = float(period)
+
         @jax.jit
         def func(t):
             t = jnp.asarray(t)
@@ -657,38 +694,43 @@ class EqxModel(eqx.Module):
             start = t0 + n * period
             stop = start + duration
             return EqxModel.OnOff(t, start, stop, s)
+
         return func
 
     @staticmethod
     def NDoses(t0_list, duration, s=10.0):
         t0_arr = jnp.array(t0_list)
         duration = float(duration)
+
         @jax.jit
         def func(t):
             t = jnp.asarray(t)
             return jnp.sum(EqxModel.OnOff(t, t0_arr, t0_arr + duration, s), axis=-1)
+
         return func
-    
+
     @staticmethod
     def ZeroFunc():
         """
         Default static method for forcing functions: always returns zero for any t input.
         """
+
         @jax.jit
         def func(t):
             return 0.0
+
         return func
-    
+
     def compile_forcing_functions(self):
         """
         Convert all dict-based forcing functions to JIT-compiled callables in-place.
         Should be called before ODE solve if forcing_functions contains dicts.
         """
         for input_name, ff in list(self.forcing_functions.items()):
-            if isinstance(ff, dict) and 'function' in ff:
-                func_name = ff['function']
-                args = ff.get('args', ())
-                kwargs = ff.get('kwargs', {})
+            if isinstance(ff, dict) and "function" in ff:
+                func_name = ff["function"]
+                args = ff.get("args", ())
+                kwargs = ff.get("kwargs", {})
                 func_factory = getattr(self, func_name, None)
                 if func_factory is None or not callable(func_factory):
                     raise AttributeError(f"Forcing function '{func_name}' not found in EqxModel.")
@@ -708,15 +750,18 @@ class EqxModel(eqx.Module):
         # Evaluate all dynamic calcs (needed for outputs or ODEs)
         for var, expr in self.model_tree.dynamic_calcs.items():
             context[var] = expr.evaluate(context, Approach.JAX)
-        if hasattr(self.model_tree, 'calc_outputs'):
+        if hasattr(self.model_tree, "calc_outputs"):
             for var, expr in self.model_tree.calc_outputs.items():
                 context[var] = expr.evaluate(context, Approach.JAX)
         return context
-    
+
     @eqx.filter_jit
     def model(self, t, y):
         context = self.build_context(y, t)
-        dydt = [self.model_tree.dynamics[state].evaluate(context, Approach.JAX) for state in self.state_names]
+        dydt = [
+            self.model_tree.dynamics[state].evaluate(context, Approach.JAX)
+            for state in self.state_names
+        ]
         return jnp.stack(dydt)
 
     def run_model(self, times):
@@ -727,7 +772,7 @@ class EqxModel(eqx.Module):
                 "Please use ScipyModel for models with discrete events, or consider "
                 "implementing events as continuous forcing functions."
             )
-        
+
         # Compile forcing functions before running ODE solve
         self.compile_forcing_functions()
         t0 = float(times[0])
@@ -753,7 +798,7 @@ class EqxModel(eqx.Module):
         calc_outputs = jax.vmap(calc_outputs_single, in_axes=(0, 0))(sol.ys, sol.ts)
         # Return the compiled forcing functions for plotting
         return sol, calc_outputs, dict(self.forcing_functions)
-        
+
 
 class JaxModel(OdeModel):
     def __init__(self, model: str | Path):
@@ -765,7 +810,6 @@ class JaxModel(OdeModel):
         """
         super().__init__(model=model)
 
-    
     def model(self, t: float, y, args) -> object:
         raise NotImplementedError("This method should be implemented in equinox module class.")
 
@@ -789,6 +833,7 @@ class JaxModel(OdeModel):
             aux_names=self.outputs,
             input_functions=input_functions,
         )
+
     def _to_eqx(self):
         """
         Return an EqxModel object initialized from this JaxModel instance.
@@ -805,8 +850,9 @@ class JaxModel(OdeModel):
             events=self.events.copy(),
             model_tree=self.model_tree,
             state_names=tuple(self.state_names),
-            output_names=tuple(self.outputs)
+            output_names=tuple(self.outputs),
         )
+
 
 class ScipyModel(OdeModel):
     def __init__(self, model: str | Path):
@@ -817,7 +863,7 @@ class ScipyModel(OdeModel):
             model: Path to model or model string.
         """
         super().__init__(model=model)
-    
+
     @staticmethod
     def OnOff(t, t0, t1):
         """
@@ -826,7 +872,7 @@ class ScipyModel(OdeModel):
         t1: time (wrt to t) when dose is stopped
         """
         s = 10
-        y = (np.tanh(s*(t-t0)) - np.tanh(s*(t-t1)))/2
+        y = (np.tanh(s * (t - t0)) - np.tanh(s * (t - t1))) / 2
         return y
 
     @staticmethod
@@ -835,6 +881,7 @@ class ScipyModel(OdeModel):
         Returns a function of t for periodic dosing using OnOff, with parameters fixed.
         Usage: PerDose(t0, duration, period)(t)
         """
+
         def func(t):
             if t < t0:
                 return 0.0
@@ -842,15 +889,18 @@ class ScipyModel(OdeModel):
             start = t0 + n * period
             stop = start + duration
             return ScipyModel.OnOff(t, start, stop)
+
         return func
-    
+
     @staticmethod
     def ZeroFunc():
         """
         Default static method for forcing functions: always returns zero for any t input.
         """
+
         def func(t):
             return 0.0
+
         return func
 
     @staticmethod
@@ -859,8 +909,10 @@ class ScipyModel(OdeModel):
         Returns a function of t for multiple dosing using OnOff, with parameters fixed.
         Usage: NDoses(t0_list, duration)(t)
         """
+
         def func(t):
             return sum(ScipyModel.OnOff(t, t0, t0 + duration) for t0 in t0_list)
+
         return func
 
     def build_context(self, state_vals, t):
@@ -872,10 +924,10 @@ class ScipyModel(OdeModel):
         context = {name: state_vals[i] for i, name in enumerate(self.state_names)}
         context.update(self.parameters)
         for input_name, ff in self.forcing_functions.items():
-            if isinstance(ff, dict) and 'function' in ff:
-                func_name = ff['function']
-                args = ff.get('args', ())
-                kwargs = ff.get('kwargs', {})
+            if isinstance(ff, dict) and "function" in ff:
+                func_name = ff["function"]
+                args = ff.get("args", ())
+                kwargs = ff.get("kwargs", {})
                 func_factory = getattr(self, func_name, None)
                 if func_factory is None or not callable(func_factory):
                     raise AttributeError(f"Forcing function '{func_name}' not found in ScipyModel.")
@@ -888,7 +940,7 @@ class ScipyModel(OdeModel):
         for var, expr in self.model_tree.dynamic_calcs.items():
             context[var] = expr.evaluate(context, Approach.SCIPY)
         # Evaluate any calculated outputs if needed
-        if hasattr(self.model_tree, 'calc_outputs'):
+        if hasattr(self.model_tree, "calc_outputs"):
             for var, expr in self.model_tree.calc_outputs.items():
                 context[var] = expr.evaluate(context, Approach.SCIPY)
         return context
@@ -909,6 +961,7 @@ class ScipyModel(OdeModel):
     def make_event_switch(self, time):
         def event(t, y):
             return t - time
+
         event.terminal = False
         event.direction = 0
         return event
@@ -920,10 +973,10 @@ class ScipyModel(OdeModel):
         """
         times = np.array(times)
         y_init = np.array([self.Y0[state] for state in self.state_names])
-        
+
         # Get all switch times (forcing functions + events)
         switch_times = self.extract_switch_times(self.forcing_functions, times[0], times[-1])
-        
+
         # If no events, use the original method
         if not self.events:
             t_span = np.array([times[0], times[-1]])
@@ -936,45 +989,45 @@ class ScipyModel(OdeModel):
                 t_eval=all_times,
                 vectorized=True,
                 events=events,
-                method='BDF'
+                method="BDF",
             )
         else:
             # Handle discrete events by integrating between event times
             event_times = [e.time for e in self.events if times[0] <= e.time <= times[-1]]
-            
+
             # Create segments between events
             segments = []
             t_start = times[0]
-            
+
             for event_time in sorted(event_times):
                 if event_time > t_start:
                     segments.append((t_start, event_time))
                 t_start = event_time
-            
+
             # Add final segment
             if t_start < times[-1]:
                 segments.append((t_start, times[-1]))
-            
+
             # Integrate each segment
             all_sol_times = []
             all_sol_states = []
             current_y = y_init.copy()
-            
+
             for i, (seg_start, seg_end) in enumerate(segments):
                 # Get times for this segment
                 seg_times = times[(times >= seg_start) & (times <= seg_end)]
                 seg_switch_times = [t for t in switch_times if seg_start < t < seg_end]
                 seg_all_times = np.unique(np.concatenate([seg_times, seg_switch_times]))
-                
+
                 if len(seg_all_times) > 0 and seg_all_times[0] != seg_start:
                     seg_all_times = np.concatenate([[seg_start], seg_all_times])
                 if len(seg_all_times) > 0 and seg_all_times[-1] != seg_end:
                     seg_all_times = np.concatenate([seg_all_times, [seg_end]])
-                
+
                 if len(seg_all_times) > 1:
                     # Create events for this segment
                     seg_events = [self.make_event_switch(t) for t in seg_switch_times]
-                    
+
                     # Solve for this segment
                     seg_sol = sci.solve_ivp(
                         fun=self.model,
@@ -983,32 +1036,32 @@ class ScipyModel(OdeModel):
                         t_eval=seg_all_times,
                         vectorized=True,
                         events=seg_events,
-                        method='BDF'
+                        method="BDF",
                     )
-                    
+
                     all_sol_times.append(seg_sol.t)
                     all_sol_states.append(seg_sol.y)
-                    
+
                     # Update current state to end of segment
                     current_y = seg_sol.y[:, -1]
-                
+
                 # Apply events at seg_end if there are any
                 if seg_end in event_times:
                     state_dict = {name: current_y[i] for i, name in enumerate(self.state_names)}
                     state_dict = self.apply_events_at_time(seg_end, state_dict)
                     current_y = np.array([state_dict[name] for name in self.state_names])
-            
+
             # Combine all solutions
             if all_sol_times:
                 combined_times = np.concatenate(all_sol_times)
                 combined_states = np.concatenate(all_sol_states, axis=1)
-                
+
                 # Create a mock solution object compatible with the rest of the code
                 class MockSolution:
                     def __init__(self, t, y):
                         self.t = t
                         self.y = y
-                
+
                 sol = MockSolution(combined_times, combined_states)
             else:
                 # Fallback if no segments
@@ -1018,9 +1071,9 @@ class ScipyModel(OdeModel):
                     y0=y_init,
                     t_eval=times,
                     vectorized=True,
-                    method='BDF'
+                    method="BDF",
                 )
-        
+
         self.sol = sol  # Store the raw solution with ScipyModel
 
         # Vectorized calculation of outputs (from self.outputs) for each time point
@@ -1031,21 +1084,20 @@ class ScipyModel(OdeModel):
             return np.array([context[name] for name in output_names], dtype=np.float64)
 
         # Use numpy vectorization for speed (not jax.vmap, since this is numpy/scipy)
-        calc_outputs = np.stack([
-            calc_outputs_single(sol.y[:, i], sol.t[i])
-            for i in range(sol.t.shape[0])
-        ], axis=0)
+        calc_outputs = np.stack(
+            [calc_outputs_single(sol.y[:, i], sol.t[i]) for i in range(sol.t.shape[0])], axis=0
+        )
 
         # Build input_functions dict: input name -> callable
         input_functions = {}
         for input_name, ff in self.forcing_functions.items():
-            if isinstance(ff, dict) and 'function' in ff:
-                func_name = ff['function']
-                kwargs = ff.get('kwargs', {})
+            if isinstance(ff, dict) and "function" in ff:
+                func_name = ff["function"]
+                kwargs = ff.get("kwargs", {})
                 func_factory = getattr(self, func_name, None)
                 if func_factory is None or not callable(func_factory):
                     raise AttributeError(f"Forcing function '{func_name}' not found in ScipyModel.")
-                input_functions[input_name] = func_factory(*ff.get('args', ()), **kwargs)
+                input_functions[input_name] = func_factory(*ff.get("args", ()), **kwargs)
             else:
                 input_functions[input_name] = ff  # already a callable
 

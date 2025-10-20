@@ -14,10 +14,10 @@ except ImportError:
     jax_functions = None
 
 __all__ = [
-    "ForcingFunction", 
-    "MultiDoseForcing", 
-    "OnOffForcing", 
-    "PeriodicForcing",
+    "ForcingFunction",
     "InterpolatedForcing",
-    "create_interpolated_forcing"
+    "MultiDoseForcing",
+    "OnOffForcing",
+    "PeriodicForcing",
+    "create_interpolated_forcing",
 ]

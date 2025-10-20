@@ -6,12 +6,12 @@ from collections.abc import Callable
 
 class ForcingFunction(ABC):
     """Base class for forcing functions."""
-    
+
     @abstractmethod
     def create_function(self, backend: str = "scipy") -> Callable:
         """Create the forcing function for the specified backend."""
         pass
-    
+
     @abstractmethod
     def get_switch_times(self, t_start: float, t_end: float) -> list[float]:
         """Get times when this forcing function changes behavior."""
@@ -20,23 +20,25 @@ class ForcingFunction(ABC):
 
 class OnOffForcing(ForcingFunction):
     """On-off forcing function."""
-    
+
     def __init__(self, t0: float, t1: float, s: float = 10.0):
         self.t0 = t0
         self.t1 = t1
         self.s = s
-    
+
     def create_function(self, backend: str = "scipy") -> Callable:
         """Create the on-off function for the specified backend."""
         if backend == "scipy":
             from .scipy_functions import create_onoff
+
             return create_onoff(self.t0, self.t1, self.s)
         elif backend == "jax":
             from .jax_functions import create_onoff
+
             return create_onoff(self.t0, self.t1, self.s)
         else:
             raise ValueError(f"Unknown backend: {backend}")
-    
+
     def get_switch_times(self, t_start: float, t_end: float) -> list[float]:
         """Get switch times for this forcing function."""
         times = []
@@ -49,24 +51,26 @@ class OnOffForcing(ForcingFunction):
 
 class PeriodicForcing(ForcingFunction):
     """Periodic dosing forcing function."""
-    
+
     def __init__(self, t0: float, duration: float, period: float, s: float = 10.0):
         self.t0 = t0
         self.duration = duration
         self.period = period
         self.s = s
-    
+
     def create_function(self, backend: str = "scipy") -> Callable:
         """Create the periodic function for the specified backend."""
         if backend == "scipy":
             from .scipy_functions import create_perdose
+
             return create_perdose(self.t0, self.duration, self.period, self.s)
         elif backend == "jax":
             from .jax_functions import create_perdose
+
             return create_perdose(self.t0, self.duration, self.period, self.s)
         else:
             raise ValueError(f"Unknown backend: {backend}")
-    
+
     def get_switch_times(self, t_start: float, t_end: float) -> list[float]:
         """Get switch times for periodic dosing."""
         times = []
@@ -86,23 +90,25 @@ class PeriodicForcing(ForcingFunction):
 
 class MultiDoseForcing(ForcingFunction):
     """Multiple discrete dose forcing function."""
-    
+
     def __init__(self, t0_list: list[float], duration: float, s: float = 10.0):
         self.t0_list = t0_list
         self.duration = duration
         self.s = s
-    
+
     def create_function(self, backend: str = "scipy") -> Callable:
         """Create the multi-dose function for the specified backend."""
         if backend == "scipy":
             from .scipy_functions import create_ndoses
+
             return create_ndoses(self.t0_list, self.duration, self.s)
         elif backend == "jax":
             from .jax_functions import create_ndoses
+
             return create_ndoses(self.t0_list, self.duration, self.s)
         else:
             raise ValueError(f"Unknown backend: {backend}")
-    
+
     def get_switch_times(self, t_start: float, t_end: float) -> list[float]:
         """Get switch times for multiple doses."""
         times = []
