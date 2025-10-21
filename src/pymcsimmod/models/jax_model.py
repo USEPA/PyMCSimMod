@@ -153,8 +153,16 @@ class EqxModel(eqx.Module):
         ]
         return jnp.stack(dydt)
 
-    def run_model(self, times):
-        """Run the JAX model with event handling checks."""
+    def run_model(self, times, max_steps=100000, dt0=0.01, solver=None):
+        """
+        Run the JAX model with event handling checks.
+
+        Args:
+            times: Sequence of time points at which to solve the ODE system.
+            max_steps: Maximum number of solver steps (default: 100000).
+            dt0: Initial step size for the solver (default: 0.01).
+            solver: Diffrax solver to use. If None, uses Dopri8() (default: None).
+        """
         # Check for events and warn
         if self.events:
             raise NotImplementedError(
@@ -174,10 +182,13 @@ class EqxModel(eqx.Module):
             return self.model(t, y)
 
         ode_term = diffrax.ODETerm(ode_rhs)
-        solver = diffrax.Dopri8()
+        # Use provided solver or default to Dopri8
+        if solver is None:
+            solver = diffrax.Dopri8()
         saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t_end, len(times)))
         sol = diffrax.diffeqsolve(
-            ode_term, solver, t0=t0, t1=t_end, dt0=0.01, y0=y_init, saveat=saveat, args=()
+            ode_term, solver, t0=t0, t1=t_end, dt0=dt0, y0=y_init, saveat=saveat,
+            max_steps=max_steps, args=()
         )
 
         @eqx.filter_jit
@@ -210,18 +221,21 @@ class JaxModel(OdeModel):
         """Placeholder - actual implementation is in EqxModel."""
         raise NotImplementedError("This method should be implemented in equinox module class.")
 
-    def run_model(self, times: Sequence[int, float]) -> ComputedModel:
+    def run_model(self, times: Sequence[int, float], max_steps=100000, dt0=0.01, solver=None) -> ComputedModel:
         """
         Solve the ODE system using diffrax (JAX backend) and return a ComputedModel.
 
         Args:
             times: Sequence of time points at which to solve the ODE system.
+            max_steps: Maximum number of solver steps (default: 100000).
+            dt0: Initial step size for the solver (default: 0.01).
+            solver: Diffrax solver to use. If None, uses Dopri8() (default: None).
 
         Returns:
             ComputedModel instance containing the solution.
         """
         eqx_model = self._to_eqx()
-        sol, calc_outputs, input_functions = eqx_model.run_model(times)
+        sol, calc_outputs, input_functions = eqx_model.run_model(times, max_steps=max_steps, dt0=dt0, solver=solver)
         return ComputedModel(
             times=np.asarray(sol.ts),
             states=np.asarray(sol.ys),
