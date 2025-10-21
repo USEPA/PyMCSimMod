@@ -50,6 +50,7 @@ class ComputedModel(BaseModel):
         legend: bool = True,
         xlabel: str = "Time",
         ylabel: str = "Value",
+        labels: dict[str, str] | None = None,
         **kwargs,
     ) -> Axes:
         """
@@ -61,6 +62,8 @@ class ComputedModel(BaseModel):
             legend: Whether to display the legend (default: True).
             xlabel: Label for the x-axis (default: 'Time').
             ylabel: Label for the y-axis (default: 'Value').
+            labels: Optional dict mapping variable names to custom legend labels.
+                   If not provided, variable names are used as labels.
             **kwargs: Additional keyword arguments passed to plt.plot.
 
         Returns:
@@ -80,16 +83,19 @@ class ComputedModel(BaseModel):
                 f"One or more variables '{variables}' not found in states or calculated dynamics."
             )
         for var in variables:
+            # Use custom label if provided, otherwise use variable name
+            label = labels.get(var, var) if labels is not None else var
+
             if var in self.var_names:
                 idx = self.var_names.index(var)
-                ax.plot(self.times, self.states[:, idx], label=var, **kwargs)
+                ax.plot(self.times, self.states[:, idx], label=label, **kwargs)
             elif self.aux_names is not None and var in self.aux_names:
                 idx = self.aux_names.index(var)
-                ax.plot(self.times, self.aux_outputs[:, idx], label=var, **kwargs)
+                ax.plot(self.times, self.aux_outputs[:, idx], label=label, **kwargs)
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
         if legend:
-            ax.legend()
+            ax.legend(loc='best')
         return ax
 
     def plot_inputs(
@@ -99,6 +105,7 @@ class ComputedModel(BaseModel):
         legend: bool = True,
         xlabel: str = "Time",
         ylabel: str = "Input Value",
+        labels: dict[str, str] | None = None,
         **kwargs,
     ) -> Axes:
         """
@@ -110,6 +117,8 @@ class ComputedModel(BaseModel):
             legend: Whether to display the legend (default: True).
             xlabel: Label for the x-axis (default: 'Time').
             ylabel: Label for the y-axis (default: 'Input Value').
+            labels: Optional dict mapping input names to custom legend labels.
+                   If not provided, input names are used as labels.
             **kwargs: Additional keyword arguments passed to plt.plot.
 
         Returns:
@@ -126,13 +135,15 @@ class ComputedModel(BaseModel):
         for var in variables:
             if var not in self.input_functions:
                 raise KeyError(f"Input '{var}' not found in input_functions.")
+            # Use custom label if provided, otherwise use variable name
+            label = labels.get(var, var) if labels is not None else var
             # Evaluate input function at all time points
             values = [self.input_functions[var](t) for t in self.times]
-            ax.plot(self.times, values, label=var, **kwargs)
+            ax.plot(self.times, values, label=label, **kwargs)
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
         if legend:
-            ax.legend()
+            ax.legend(loc='best')
         return ax
 
     def __getitem__(self, key: int | str) -> np.ndarray:
