@@ -350,7 +350,7 @@ class Model(BaseModel):
                 if isinstance(section, Statement):
                     params.update(section.to_dict())
             self._params = params
-            return self._params
+        return self._params
 
     @property
     def inputs(self) -> list[str]:

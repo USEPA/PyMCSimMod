@@ -47,7 +47,7 @@ class OdeModel(ABC):
         """
         Assign the parameters and initial conditions (Y0) from the model tree to the model instance.
         """
-        self.parameters = self.model_tree.parameters
+        self.parameters = self.model_tree.parameters.copy()
         self.Y0 = self._evaluate_Y0()  # dict(state_var_name: value)
 
     @abstractmethod
@@ -77,11 +77,13 @@ class OdeModel(ABC):
                 Y0.update(section.get_Y0(context, approach))
         return Y0
 
-    def update_constants(self, **parameters: float | int) -> None:
+    def update_constants(self, reset_to_defaults: bool = False, **parameters: float | int) -> None:
         """
         Update any constants in the model tree in place. Re-evaluate Y0 after updating.
 
         Args:
+            reset_to_defaults: If True, reset all parameters to their original model tree defaults
+                             before applying updates. If False, update current parameters in place.
             **parameters: Keyword arguments where keys are parameter names and values are the new values.
 
         Raises:
@@ -91,13 +93,19 @@ class OdeModel(ABC):
         if missing:
             raise KeyError(f"Parameter(s) '{', '.join(missing)}' do not exist in the model tree.")
 
+        if reset_to_defaults:
+            # Reset to original model tree defaults first
+            self.parameters = self.model_tree.parameters.copy()
+            self.Y0 = self._evaluate_Y0()  # dict(state_var_name: value)
+
+        # Apply the provided parameter updates
         for key, value in parameters.items():
             self.parameters[key] = value
 
         # Re-evaluate Y0 in case any initial conditions depend on updated parameters
         self.Y0 = self._evaluate_Y0()
 
-    def update_Y0(self, **Y0: float | int) -> None:
+    def update_Y0(self, reset_to_defaults: bool = False, **Y0: float | int) -> None:
         """
         Update any initial conditions in the model tree in place.
 
@@ -105,6 +113,8 @@ class OdeModel(ABC):
         initial conditions to ensure consistency.
 
         Args:
+            reset_to_defaults: If True, reset all Y0 values to their original model tree defaults
+                             before applying updates. If False, update current Y0 values in place.
             **Y0: Keyword arguments where keys are state variable names and values are the new initial values.
 
         Raises:
@@ -115,6 +125,10 @@ class OdeModel(ABC):
             raise KeyError(
                 f"Initial condition(s) '{', '.join(missing)}' do not exist in the model tree."
             )
+
+        if reset_to_defaults:
+            # Reset to original model tree defaults first
+            self.Y0 = self._evaluate_Y0()
 
         # Update the specified Y0 values
         for key, value in Y0.items():

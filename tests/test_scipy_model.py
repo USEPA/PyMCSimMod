@@ -547,3 +547,64 @@ def test_scipy_model_string():
     assert isinstance(result, ComputedModel)
     assert len(result.times) == len(times)
     assert result.states.shape == (len(times), 1)
+
+
+def test_reset_to_defaults():
+    """Test reset_to_defaults functionality for both parameters and Y0."""
+    model_str = """
+    States = { A };
+    
+    Inputs = { dose };
+    
+    # Parameters with default values
+    ke = 0.5;
+    ka = 1.0;
+    
+    Initialize {
+        A = 10.0;
+    }
+    
+    Dynamics {
+        dt(A) = -ke * A + dose;
+    }
+    
+    End.
+    """
+
+    model = ScipyModel(model_str)
+    
+    # Store original default values
+    original_parameters = model.parameters.copy()
+    original_Y0 = model.Y0.copy()
+    
+    # Update some parameters and Y0 values
+    model.update_constants(ke=2.0, ka=3.0)
+    model.update_Y0(A=20.0)
+    
+    # Verify they changed
+    assert model.parameters["ke"] == 2.0
+    assert model.parameters["ka"] == 3.0
+    assert model.Y0["A"] == 20.0
+    
+    # Test reset_to_defaults=True for parameters
+    model.update_constants(reset_to_defaults=True, ke=1.5)
+    assert model.parameters["ke"] == 1.5  # Updated value
+    assert model.parameters["ka"] == 1.0  # Reset to default
+    
+    # Test reset_to_defaults=True for Y0
+    model.update_Y0(reset_to_defaults=True, A=15.0)
+    assert model.Y0["A"] == 15.0  # Updated value
+    
+    # Test reset_to_defaults=False (default behavior)
+    model.update_constants(ke=5.0)  # Should only update ke, not reset others
+    assert model.parameters["ke"] == 5.0
+    assert model.parameters["ka"] == 1.0  # Should remain unchanged
+    
+    model.update_Y0(A=25.0)  # Should only update A
+    assert model.Y0["A"] == 25.0
+    
+    # Full reset test
+    model.update_constants(reset_to_defaults=True)
+    model.update_Y0(reset_to_defaults=True)
+    assert model.parameters == original_parameters
+    assert model.Y0 == original_Y0
