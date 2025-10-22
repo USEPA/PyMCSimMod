@@ -153,14 +153,14 @@ class EqxModel(eqx.Module):
         ]
         return jnp.stack(dydt)
 
-    def run_model(self, times, max_steps=100000, dt0=0.01, solver=None):
+    def run_model(self, times, max_steps=100000, dt0=0.001, solver=None):
         """
         Run the JAX model with event handling checks.
 
         Args:
             times: Sequence of time points at which to solve the ODE system.
             max_steps: Maximum number of solver steps (default: 100000).
-            dt0: Initial step size for the solver (default: 0.01).
+            dt0: Initial step size for the solver (default: 0.001).
             solver: Diffrax solver to use. If None, uses Dopri8() (default: None).
         """
         # Check for events and warn
@@ -191,12 +191,34 @@ class EqxModel(eqx.Module):
             max_steps=max_steps, args=()
         )
 
+        # Check for NaN values in the solution and provide helpful guidance
+        if jnp.any(jnp.isnan(sol.ys)):
+            raise ValueError(
+                f"JAX model integration produced NaN values. This often indicates numerical "
+                f"instability. Try the following fixes:\n"
+                f"1. Use a smaller initial step size: run_model(times, dt0={dt0/100:.6f})\n"
+                f"2. Try a different solver: run_model(times, solver=diffrax.Dopri5())\n"
+                f"3. For stiff systems, consider: run_model(times, solver=diffrax.Kvaerno5())\n"
+                f"4. If the issue persists, try the ScipyModel backend instead.\n"
+                f"Current settings: dt0={dt0}, solver={type(solver).__name__}"
+            )
+
         @eqx.filter_jit
         def calc_outputs_single(state_vals, t):
             context = self.build_context(state_vals, t)
             return jnp.array([context[name] for name in self.output_names], dtype=jnp.float32)
 
         calc_outputs = jax.vmap(calc_outputs_single, in_axes=(0, 0))(sol.ys, sol.ts)
+
+        # Check for NaN values in calculated outputs too
+        if jnp.any(jnp.isnan(calc_outputs)):
+            raise ValueError(
+                f"JAX model calculated outputs contain NaN values. This may indicate issues "
+                f"with auxiliary calculations (e.g., division by zero). Consider:\n"
+                f"1. Checking for zero denominators in your model equations\n"
+                f"2. Using a smaller step size: dt0={dt0/100:.6f}\n"
+                f"3. Switching to ScipyModel for better numerical stability"
+            )
         # Return the compiled forcing functions for plotting
         return sol, calc_outputs, dict(self.forcing_functions)
 
@@ -221,18 +243,28 @@ class JaxModel(OdeModel):
         """Placeholder - actual implementation is in EqxModel."""
         raise NotImplementedError("This method should be implemented in equinox module class.")
 
-    def run_model(self, times: Sequence[int, float], max_steps=100000, dt0=0.01, solver=None) -> ComputedModel:
+    def run_model(self, times: Sequence[int, float], max_steps=100000, dt0=0.001, solver=None) -> ComputedModel:
         """
         Solve the ODE system using diffrax (JAX backend) and return a ComputedModel.
 
         Args:
             times: Sequence of time points at which to solve the ODE system.
             max_steps: Maximum number of solver steps (default: 100000).
-            dt0: Initial step size for the solver (default: 0.01).
+            dt0: Initial step size for the solver (default: 0.001).
             solver: Diffrax solver to use. If None, uses Dopri8() (default: None).
 
         Returns:
             ComputedModel instance containing the solution.
+
+        Raises:
+            ValueError: If the integration produces NaN values, indicating numerical
+                instability. See error message for suggested fixes including smaller
+                dt0 values or different solvers.
+
+        Note:
+            JAX models may be more sensitive to numerical instability than SciPy models.
+            If you encounter NaN values, try reducing dt0 (e.g., dt0=0.0001) or using
+            a different solver. For very stiff systems, consider using ScipyModel instead.
         """
         eqx_model = self._to_eqx()
         sol, calc_outputs, input_functions = eqx_model.run_model(times, max_steps=max_steps, dt0=dt0, solver=solver)

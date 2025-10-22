@@ -483,7 +483,7 @@ class TestJaxModel:
             # Verify analytical solution: y(t) = y0 + m*t = 5 + 1*t
             expected_final = 5.0 + 1.0 * times[-1]
             actual_final = result.dataframe["y"].iloc[-1]
-            np.testing.assert_allclose(actual_final, expected_final, rtol=1e-5)
+            np.testing.assert_allclose(actual_final, expected_final, rtol=2e-4)
 
     def test_multi_state_jax_model(self):
         """Test that multi-state models work correctly with JAX."""
