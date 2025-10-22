@@ -65,6 +65,8 @@ AUC_init = 0;       # Initial area under the concentration curve (mg*h/L).
 # Dosing parameters for repeat dose
 OralDose = 0;       # mg dose to expsoure compartment
 OralDur = 0.01;     # Duration of oral dosing (h)
+IVDose = 0;         # mg dose to central compartment
+IVDur = 0.01;       # Duration of IV dosing (h)
 
 # End of PARAMETERS.
 #-------------------------------------------------------------------------------
@@ -98,7 +100,7 @@ Dynamics {
 
     # Time rate of change (ODE) for each state variable.
     dt(A0) = OralExp*ODose - k01 * A0;
-    dt(A1) = k01 * A0 - k12 * A1;
+    dt(A1) = IVExp*ODose + k01 * A0 - k12 * A1;
     dt(A2) = k12 * A1;
     dt(AUC) = C;
 }
