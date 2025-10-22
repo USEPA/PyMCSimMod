@@ -367,6 +367,20 @@ class Model(BaseModel):
         return self._inputs
 
     @property
+    def states(self) -> list[str]:
+        """
+        Extract state variables from the model.
+        Returns a list of state variable names.
+        """
+        if not hasattr(self, "_states"):
+            self._states = []  # Default to empty list
+            for section in self.sections:
+                if isinstance(section, StatesSection):
+                    self._states = [declaration.name for declaration in section.declarations]
+                    break
+        return self._states
+
+    @property
     def outputs(self) -> list[str]:
         """
         Extract outputs from the model.

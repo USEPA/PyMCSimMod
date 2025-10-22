@@ -529,6 +529,332 @@ class TestJaxModel:
         assert y_vals[0] == 2.0  # Initial condition
         assert np.all(y_vals >= 0)  # y should stay non-negative
 
+    def test_calculated_parameters_basic(self):
+        """Test basic calculated parameters functionality from Initialize section."""
+        model_str = """
+        States = {
+            A
+        };
+
+        # Base parameters
+        k1 = 1.0;
+        k2 = 2.0;
+
+        # This will be calculated in Initialize
+        k_combined = 0.0;
+
+        Initialize {
+            A = 5.0;
+            k_combined = k1 + k2;
+        }
+
+        Dynamics {
+            dt(A) = -k_combined * A;
+        }
+
+        End.
+        """
+
+        model = JaxModel(model_str)
+
+        # Verify that calculated parameters are included in parameters dict
+        assert "k1" in model.parameters
+        assert "k2" in model.parameters
+        assert "k_combined" in model.parameters
+
+        # Verify values are correct
+        assert model.parameters["k1"] == 1.0
+        assert model.parameters["k2"] == 2.0
+        assert model.parameters["k_combined"] == 3.0  # k1 + k2
+
+        # Verify state variables are only in Y0, not in parameters
+        assert "A" in model.Y0
+        assert "A" not in model.parameters
+        assert model.Y0["A"] == 5.0
+
+    def test_calculated_parameters_dependency_chain(self):
+        """Test chained calculated parameters with dependencies."""
+        model_str = """
+        States = {
+            A, B
+        };
+
+        # Base parameters
+        M = 70.0;        # Body weight in kg
+        Q_CC = 5.0;      # Cardiac output coefficient
+
+        # These will be calculated in Initialize
+        Q_C = 0.0;       # Cardiac output
+        V_body = 0.0;    # Body volume
+        clearance = 0.0; # Total clearance
+
+        Initialize {
+            A = 0.0;
+            B = 0.0;
+
+            # Chain of calculations
+            Q_C = Q_CC * pow(M, 0.75);          # First calculation
+            V_body = M / 1000.0;                # Second calculation
+            clearance = Q_C * 0.1;              # Depends on Q_C
+        }
+
+        Dynamics {
+            dt(A) = -clearance * A;
+            dt(B) = clearance * A - 0.5 * B;
+        }
+
+        End.
+        """
+
+        model = JaxModel(model_str)
+
+        # Verify all parameters are present
+        assert "M" in model.parameters
+        assert "Q_CC" in model.parameters
+        assert "Q_C" in model.parameters
+        assert "V_body" in model.parameters
+        assert "clearance" in model.parameters
+
+        # Calculate expected values
+        expected_Q_C = 5.0 * (70.0 ** 0.75)
+        expected_V_body = 70.0 / 1000.0
+        expected_clearance = expected_Q_C * 0.1
+
+        # Verify calculated values are correct
+        np.testing.assert_allclose(model.parameters["Q_C"], expected_Q_C, rtol=1e-10)
+        np.testing.assert_allclose(model.parameters["V_body"], expected_V_body, rtol=1e-10)
+        np.testing.assert_allclose(model.parameters["clearance"], expected_clearance, rtol=1e-10)
+
+        # Verify state variables are in Y0
+        assert "A" in model.Y0
+        assert "B" in model.Y0
+        assert model.Y0["A"] == 0.0
+        assert model.Y0["B"] == 0.0
+
+    def test_calculated_parameters_update_constants(self):
+        """Test that calculated parameters are updated when base parameters change."""
+        model_str = """
+        States = {
+            X
+        };
+
+        # Base parameters
+        base_rate = 2.0;
+        multiplier = 3.0;
+
+        # Calculated parameters
+        derived_rate = 0.0;
+        final_rate = 0.0;
+
+        Initialize {
+            X = 1.0;
+            derived_rate = base_rate * multiplier;
+            final_rate = derived_rate + 1.0;
+        }
+
+        Dynamics {
+            dt(X) = -final_rate * X;
+        }
+
+        End.
+        """
+
+        model = JaxModel(model_str)
+
+        # Initial values
+        assert model.parameters["base_rate"] == 2.0
+        assert model.parameters["multiplier"] == 3.0
+        assert model.parameters["derived_rate"] == 6.0  # 2.0 * 3.0
+        assert model.parameters["final_rate"] == 7.0    # 6.0 + 1.0
+
+        # Update base parameter
+        model.update_constants(base_rate=4.0)
+
+        # Verify calculated parameters are updated
+        assert model.parameters["base_rate"] == 4.0
+        assert model.parameters["multiplier"] == 3.0
+        assert model.parameters["derived_rate"] == 12.0  # 4.0 * 3.0
+        assert model.parameters["final_rate"] == 13.0    # 12.0 + 1.0
+
+        # Verify Y0 is unchanged
+        assert model.Y0["X"] == 1.0
+
+    def test_calculated_parameters_update_multiple_constants(self):
+        """Test updating multiple base parameters simultaneously."""
+        model_str = """
+        States = {
+            Y
+        };
+
+        # Base parameters
+        a = 1.0;
+        b = 2.0;
+        c = 3.0;
+
+        # Calculated parameters
+        sum_ab = 0.0;
+        product_abc = 0.0;
+
+        Initialize {
+            Y = 0.0;
+            sum_ab = a + b;
+            product_abc = a * b * c;
+        }
+
+        Dynamics {
+            dt(Y) = sum_ab - product_abc * Y;
+        }
+
+        End.
+        """
+
+        model = JaxModel(model_str)
+
+        # Initial values
+        assert model.parameters["sum_ab"] == 3.0    # 1.0 + 2.0
+        assert model.parameters["product_abc"] == 6.0  # 1.0 * 2.0 * 3.0
+
+        # Update multiple parameters
+        model.update_constants(a=2.0, b=4.0)
+
+        # Verify calculated parameters are updated
+        assert model.parameters["a"] == 2.0
+        assert model.parameters["b"] == 4.0
+        assert model.parameters["c"] == 3.0
+        assert model.parameters["sum_ab"] == 6.0    # 2.0 + 4.0
+        assert model.parameters["product_abc"] == 24.0  # 2.0 * 4.0 * 3.0
+
+    def test_calculated_parameters_reset_to_defaults(self):
+        """Test reset_to_defaults functionality with calculated parameters."""
+        model_str = """
+        States = {
+            Z
+        };
+
+        # Base parameters
+        rate_constant = 0.5;
+        scale_factor = 2.0;
+
+        # Calculated parameter
+        effective_rate = 0.0;
+
+        Initialize {
+            Z = 10.0;
+            effective_rate = rate_constant * scale_factor;
+        }
+
+        Dynamics {
+            dt(Z) = -effective_rate * Z;
+        }
+
+        End.
+        """
+
+        model = JaxModel(model_str)
+
+        # Store original values
+        original_rate_constant = model.parameters["rate_constant"]
+        original_scale_factor = model.parameters["scale_factor"]
+        original_effective_rate = model.parameters["effective_rate"]
+
+        # Update parameters
+        model.update_constants(rate_constant=1.0, scale_factor=3.0)
+
+        # Verify updates
+        assert model.parameters["rate_constant"] == 1.0
+        assert model.parameters["scale_factor"] == 3.0
+        assert model.parameters["effective_rate"] == 3.0  # 1.0 * 3.0
+
+        # Reset to defaults
+        model.update_constants(reset_to_defaults=True)
+
+        # Verify reset worked
+        assert model.parameters["rate_constant"] == original_rate_constant
+        assert model.parameters["scale_factor"] == original_scale_factor
+        assert model.parameters["effective_rate"] == original_effective_rate
+
+        # Test reset with new values
+        model.update_constants(reset_to_defaults=True, rate_constant=0.8)
+        assert model.parameters["rate_constant"] == 0.8
+        assert model.parameters["scale_factor"] == original_scale_factor
+        assert model.parameters["effective_rate"] == 0.8 * original_scale_factor
+
+    def test_calculated_parameters_pbpk_example(self):
+        """Test with a simplified PBPK model structure similar to pbpk_simple.model."""
+        model_str = """
+        States = {
+            A_plasma, A_liver
+        };
+
+        # Physiological parameters
+        M = 0.25;               # Body weight (kg)
+        Q_CC = 15.0;            # Cardiac output (L/h/kg^0.75)
+        Q_LC = 0.21;            # Proportion of cardiac output to liver
+        V_LC = 0.04;            # Volume fraction of liver
+
+        # Calculated parameters
+        Q_C = 0.0;              # Cardiac output (L/h)
+        Q_L = 0.0;              # Blood flow rate to liver (L/h)
+        V_L = 0.0;              # Volume of liver (L)
+
+        Initialize {
+            A_plasma = 0.0;
+            A_liver = 0.0;
+
+            # PBPK calculations
+            Q_C = Q_CC * pow(M, 0.75);
+            Q_L = Q_LC * Q_C;
+            V_L = V_LC * M;
+        }
+
+        Dynamics {
+            dt(A_plasma) = -Q_L * A_plasma / 1.0;
+            dt(A_liver) = Q_L * A_plasma / 1.0 - 0.1 * A_liver / V_L;
+        }
+
+        End.
+        """
+
+        model = JaxModel(model_str)
+
+        # Verify all parameters are present
+        required_params = ["M", "Q_CC", "Q_LC", "V_LC", "Q_C", "Q_L", "V_L"]
+        for param in required_params:
+            assert param in model.parameters, f"Parameter {param} not found"
+
+        # Calculate expected values
+        M = 0.25
+        Q_CC = 15.0
+        Q_LC = 0.21
+        V_LC = 0.04
+
+        expected_Q_C = Q_CC * (M ** 0.75)
+        expected_Q_L = Q_LC * expected_Q_C
+        expected_V_L = V_LC * M
+
+        # Verify calculated values
+        np.testing.assert_allclose(model.parameters["Q_C"], expected_Q_C, rtol=1e-10)
+        np.testing.assert_allclose(model.parameters["Q_L"], expected_Q_L, rtol=1e-10)
+        np.testing.assert_allclose(model.parameters["V_L"], expected_V_L, rtol=1e-10)
+
+        # Test parameter update (change body weight)
+        new_M = 0.5
+        model.update_constants(M=new_M)
+
+        new_Q_C = Q_CC * (new_M ** 0.75)
+        new_Q_L = Q_LC * new_Q_C
+        new_V_L = V_LC * new_M
+
+        np.testing.assert_allclose(model.parameters["Q_C"], new_Q_C, rtol=1e-10)
+        np.testing.assert_allclose(model.parameters["Q_L"], new_Q_L, rtol=1e-10)
+        np.testing.assert_allclose(model.parameters["V_L"], new_V_L, rtol=1e-10)
+
+        # Verify state variables are in Y0 and unaffected
+        assert "A_plasma" in model.Y0
+        assert "A_liver" in model.Y0
+        assert model.Y0["A_plasma"] == 0.0
+        assert model.Y0["A_liver"] == 0.0
+
 
 class TestJaxCompatibility:
     """JAX compatibility tests integrated into the test suite."""

@@ -48,7 +48,36 @@ class OdeModel(ABC):
         Assign the parameters and initial conditions (Y0) from the model tree to the model instance.
         """
         self.parameters = self.model_tree.parameters.copy()
+        
+        # Add calculated parameters from Initialize section
+        self._extract_calculated_parameters()
+        
         self.Y0 = self._evaluate_Y0()  # dict(state_var_name: value)
+
+    def _extract_calculated_parameters(self) -> None:
+        """
+        Extract calculated parameters from the Initialize section.
+        These are non-state variables that are calculated and should be added to parameters.
+        """
+        # Get the list of state variable names
+        state_names = self.model_tree.states
+        
+        # Extract calculated parameters from Initialize section
+        context = self.parameters.copy()  # Use current parameters as evaluation context
+        approach = self._get_approach()  # Get the appropriate approach from subclass
+        
+        for section in self.model_tree.sections:
+            if isinstance(section, InitializeSection):
+                for statement in section.statements:
+                    var_name = (
+                        statement.lhs.eval() if hasattr(statement.lhs, "eval") else statement.lhs.name
+                    )
+                    # If this variable is not a state variable, it's a calculated parameter
+                    if var_name not in state_names:
+                        calculated_value = statement.rhs.evaluate(context, approach)
+                        self.parameters[var_name] = calculated_value
+                        # Update context for subsequent calculations that might depend on this
+                        context[var_name] = calculated_value
 
     @abstractmethod
     def _get_approach(self) -> Approach:
@@ -63,6 +92,7 @@ class OdeModel(ABC):
     def _evaluate_Y0(self) -> dict[str, float | int]:
         """
         Evaluate initial conditions from the model tree using current parameter values as context.
+        Only extracts state variables, not calculated parameters.
 
         Returns:
             Dictionary where keys are state variable names and values are their evaluated initial values.
@@ -70,16 +100,24 @@ class OdeModel(ABC):
         context = self.parameters.copy()  # Use current parameters as evaluation context
         approach = self._get_approach()  # Get the appropriate approach from subclass
 
+        # Get the list of state variable names
+        state_names = self.model_tree.states
+
         Y0 = {}
         for section in self.model_tree.sections:
             if isinstance(section, InitializeSection):
-                # Use the standardized get_Y0 method from InitializeSection
-                Y0.update(section.get_Y0(context, approach))
+                for statement in section.statements:
+                    var_name = (
+                        statement.lhs.eval() if hasattr(statement.lhs, "eval") else statement.lhs.name
+                    )
+                    # Only include state variables in Y0
+                    if var_name in state_names:
+                        Y0[var_name] = statement.rhs.evaluate(context, approach)
         return Y0
 
     def update_constants(self, reset_to_defaults: bool = False, **parameters: float | int) -> None:
         """
-        Update any constants in the model tree in place. Re-evaluate Y0 after updating.
+        Update any constants in the model tree in place. Re-evaluate calculated parameters and Y0 after updating.
 
         Args:
             reset_to_defaults: If True, reset all parameters to their original model tree defaults
@@ -89,19 +127,23 @@ class OdeModel(ABC):
         Raises:
             KeyError: If a parameter name does not exist in the model tree.
         """
-        missing = [key for key in parameters if key not in self.parameters]
+        missing = [key for key in parameters if key not in self.model_tree.parameters]
         if missing:
             raise KeyError(f"Parameter(s) '{', '.join(missing)}' do not exist in the model tree.")
 
         if reset_to_defaults:
             # Reset to original model tree defaults first
             self.parameters = self.model_tree.parameters.copy()
+            # Re-extract calculated parameters with default values
+            self._extract_calculated_parameters()
             self.Y0 = self._evaluate_Y0()  # dict(state_var_name: value)
 
         # Apply the provided parameter updates
         for key, value in parameters.items():
             self.parameters[key] = value
 
+        # Re-extract calculated parameters in case any depend on updated parameters
+        self._extract_calculated_parameters()
         # Re-evaluate Y0 in case any initial conditions depend on updated parameters
         self.Y0 = self._evaluate_Y0()
 
@@ -120,7 +162,9 @@ class OdeModel(ABC):
         Raises:
             KeyError: If a state variable name does not exist in the model tree.
         """
-        missing = [key for key in Y0 if key not in self.Y0]
+        # Check against state variables, not current Y0 keys
+        state_names = self.model_tree.states
+        missing = [key for key in Y0 if key not in state_names]
         if missing:
             raise KeyError(
                 f"Initial condition(s) '{', '.join(missing)}' do not exist in the model tree."
