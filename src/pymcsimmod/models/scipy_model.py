@@ -240,9 +240,9 @@ class ScipyModel(OdeModel):
         times = np.array(times)
         y_init = np.array([self.Y0[state] for state in self.state_names])
 
-        # Disable vectorized mode for single-state models to avoid scipy numerical jacobian issues
-        # When there's only one state variable, scipy's vectorized jacobian calculation fails
-        use_vectorized = len(self.state_names) > 1
+        # Disable vectorized mode completely to avoid scipy numerical issues
+        # Vectorized mode can cause problems with certain model expressions
+        use_vectorized = False
 
         # Get all switch times (forcing functions + events)
         switch_times = self.extract_switch_times(self.forcing_functions, times[0], times[-1])
