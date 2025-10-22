@@ -153,7 +153,7 @@ class EqxModel(eqx.Module):
         ]
         return jnp.stack(dydt)
 
-    def run_model(self, times, max_steps=100000, dt0=0.001, solver=None):
+    def run_model(self, times, max_steps=100000, dt0=0.001, solver=None, rtol=1e-10, atol=1e-10):
         """
         Run the JAX model with event handling checks.
 
@@ -162,6 +162,8 @@ class EqxModel(eqx.Module):
             max_steps: Maximum number of solver steps (default: 100000).
             dt0: Initial step size for the solver (default: 0.001).
             solver: Diffrax solver to use. If None, uses Dopri8() (default: None).
+            rtol: Relative tolerance for adaptive step size control (default: 1e-9).
+            atol: Absolute tolerance for adaptive step size control (default: 1e-11).
         """
         # Check for events and warn
         if self.events:
@@ -185,10 +187,13 @@ class EqxModel(eqx.Module):
         # Use provided solver or default to Dopri8
         if solver is None:
             solver = diffrax.Dopri8()
+
+        # Use adaptive step size control with specified tolerances for better accuracy
+        stepsize_controller = diffrax.PIDController(rtol=rtol, atol=atol)
         saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t_end, len(times)))
         sol = diffrax.diffeqsolve(
             ode_term, solver, t0=t0, t1=t_end, dt0=dt0, y0=y_init, saveat=saveat,
-            max_steps=max_steps, args=()
+            max_steps=max_steps, stepsize_controller=stepsize_controller, args=()
         )
 
         # Check for NaN values in the solution and provide helpful guidance
@@ -243,7 +248,7 @@ class JaxModel(OdeModel):
         """Placeholder - actual implementation is in EqxModel."""
         raise NotImplementedError("This method should be implemented in equinox module class.")
 
-    def run_model(self, times: Sequence[int, float], max_steps=100000, dt0=0.001, solver=None) -> ComputedModel:
+    def run_model(self, times: Sequence[int, float], max_steps=100000, dt0=0.001, solver=None, rtol=1e-9, atol=1e-11) -> ComputedModel:
         """
         Solve the ODE system using diffrax (JAX backend) and return a ComputedModel.
 
@@ -252,6 +257,8 @@ class JaxModel(OdeModel):
             max_steps: Maximum number of solver steps (default: 100000).
             dt0: Initial step size for the solver (default: 0.001).
             solver: Diffrax solver to use. If None, uses Dopri8() (default: None).
+            rtol: Relative tolerance for adaptive step size control (default: 1e-9).
+            atol: Absolute tolerance for adaptive step size control (default: 1e-11).
 
         Returns:
             ComputedModel instance containing the solution.
@@ -265,9 +272,14 @@ class JaxModel(OdeModel):
             JAX models may be more sensitive to numerical instability than SciPy models.
             If you encounter NaN values, try reducing dt0 (e.g., dt0=0.0001) or using
             a different solver. For very stiff systems, consider using ScipyModel instead.
+
+            For optimal mass balance in PBPK models:
+            - Default tolerances (rtol=1e-9, atol=1e-11) work well for most cases
+            - For high doses or long simulations, try tighter tolerances (rtol=1e-10, atol=1e-12)
+            - If mass balance is critical, compare with ScipyModel results
         """
         eqx_model = self._to_eqx()
-        sol, calc_outputs, input_functions = eqx_model.run_model(times, max_steps=max_steps, dt0=dt0, solver=solver)
+        sol, calc_outputs, input_functions = eqx_model.run_model(times, max_steps=max_steps, dt0=dt0, solver=solver, rtol=rtol, atol=atol)
         return ComputedModel(
             times=np.asarray(sol.ts),
             states=np.asarray(sol.ys),
