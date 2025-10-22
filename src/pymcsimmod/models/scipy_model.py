@@ -268,9 +268,7 @@ class ScipyModel(OdeModel):
             from .event_utils import apply_events_at_time, check_events
 
             # Validate events and potentially modify output times
-            validated_events, modified_times = check_events(
-                self.events, times, self.state_names
-            )
+            validated_events, modified_times = check_events(self.events, times, self.state_names)
 
             # If times were modified, update our time array
             if not np.array_equal(times, modified_times):
@@ -282,12 +280,16 @@ class ScipyModel(OdeModel):
             # Apply events at start time if any
             current_y = y_init.copy()
             if event_times and abs(event_times[0] - times[0]) < 1e-12:
-                current_y = np.array([
-                    apply_events_at_time(times[0],
-                                       {name: current_y[i] for i, name in enumerate(self.state_names)},
-                                       validated_events)[name]
-                    for name in self.state_names
-                ])
+                current_y = np.array(
+                    [
+                        apply_events_at_time(
+                            times[0],
+                            {name: current_y[i] for i, name in enumerate(self.state_names)},
+                            validated_events,
+                        )[name]
+                        for name in self.state_names
+                    ]
+                )
 
             # Create segments between event times
             segments = []

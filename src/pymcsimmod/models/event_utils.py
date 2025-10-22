@@ -38,8 +38,9 @@ def nearest_event_time(times: np.ndarray, event_times: np.ndarray) -> np.ndarray
     return nearest
 
 
-def clean_event_times(times: np.ndarray, event_times: np.ndarray,
-                     eps: float | None = None) -> np.ndarray:
+def clean_event_times(
+    times: np.ndarray, event_times: np.ndarray, eps: float | None = None
+) -> np.ndarray:
     """
     Remove output times that are numerically too close to event times.
 
@@ -69,7 +70,9 @@ def clean_event_times(times: np.ndarray, event_times: np.ndarray,
     return times[~too_close]
 
 
-def check_events(events: list, times: np.ndarray, state_names: list[str]) -> tuple[list, np.ndarray]:
+def check_events(
+    events: list, times: np.ndarray, state_names: list[str]
+) -> tuple[list, np.ndarray]:
     """
     Validate and process events, following deSolve's checkevents logic.
 
@@ -113,7 +116,7 @@ def check_events(events: list, times: np.ndarray, state_names: list[str]) -> tup
     if missing_events:
         warnings.warn(
             f"Not all event times were in output times, automatically including: {missing_events}",
-            stacklevel=2
+            stacklevel=2,
         )
 
         # Clean existing times that are too close to events
@@ -122,7 +125,7 @@ def check_events(events: list, times: np.ndarray, state_names: list[str]) -> tup
         if len(unique_times) < len(times):
             warnings.warn(
                 "Some time steps were very close to events - only the event times are used in these cases.",
-                stacklevel=2
+                stacklevel=2,
             )
 
         # Combine and sort times
@@ -137,8 +140,9 @@ def check_events(events: list, times: np.ndarray, state_names: list[str]) -> tup
     return valid_events, modified_times
 
 
-def apply_events_at_time(time: float, state_dict: dict, events: list,
-                        tolerance: float = 1e-12) -> dict:
+def apply_events_at_time(
+    time: float, state_dict: dict, events: list, tolerance: float = 1e-12
+) -> dict:
     """
     Apply all events that occur at a specific time.
 

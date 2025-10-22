@@ -301,7 +301,9 @@ class TestScipyModel:
         assert np.all(np.diff(result.times) > 0), "Result times should be strictly increasing"
 
         # Verify that states array matches time array length
-        assert result.states.shape[0] == len(result.times), "States and times should have same length"
+        assert result.states.shape[0] == len(result.times), (
+            "States and times should have same length"
+        )
 
         # Test that event was actually applied by checking state change
         event_idx = np.where(np.isclose(result.times, 5.0, atol=1e-6))[0]
@@ -311,7 +313,7 @@ class TestScipyModel:
         # The exact state values depend on the model dynamics and integration
         # The key is that the event time is included and no duplicates exist
         # More specific event behavior is tested in other tests
-        
+
         # Verify that we have proper event handling structure
         assert len(model.events) == 1, "Should have one event"
         assert model.events[0].time == 5.0, "Event time should be 5.0"
@@ -327,9 +329,11 @@ class TestScipyModel:
 
         # Original time array without event times
         times = np.array([0, 2, 4, 6, 8, 10])
-        
+
         # Test that the expected warning is generated
-        with pytest.warns(UserWarning, match="Not all event times were in output times, automatically including"):
+        with pytest.warns(
+            UserWarning, match="Not all event times were in output times, automatically including"
+        ):
             result = model.run_model(times)
 
         # Event times should be automatically included
@@ -388,9 +392,11 @@ class TestScipyModel:
         model.add_event(time=5.0 + eps, state_var="A", value=10.0, method="add")
 
         times = np.linspace(0, 10, 11)  # Includes 5.0
-        
+
         # Test that the expected warning is generated
-        with pytest.warns(UserWarning, match="Not all event times were in output times, automatically including"):
+        with pytest.warns(
+            UserWarning, match="Not all event times were in output times, automatically including"
+        ):
             result = model.run_model(times)
 
         # Should handle numerical tolerance properly
@@ -420,10 +426,12 @@ class TestScipyModel:
 
         # Check that we got the expected warnings
         warning_messages = [str(w.message) for w in warning_info]
-        assert any("Not all event times were in output times" in msg for msg in warning_messages), \
+        assert any("Not all event times were in output times" in msg for msg in warning_messages), (
             "Should warn about automatically including event times"
-        assert any("Some time steps were very close to events" in msg for msg in warning_messages), \
-            "Should warn about numerical tolerance handling"
+        )
+        assert any(
+            "Some time steps were very close to events" in msg for msg in warning_messages
+        ), "Should warn about numerical tolerance handling"
 
         # Should handle multiple events gracefully
         assert isinstance(result, ComputedModel)
@@ -473,8 +481,9 @@ class TestScipyModel:
         # Verify event times are included
         for event in model.events:
             if times[0] <= event.time <= times[-1]:
-                assert any(np.isclose(result.times, event.time, atol=1e-6)), \
+                assert any(np.isclose(result.times, event.time, atol=1e-6)), (
                     f"Event time {event.time} should be in result"
+                )
 
     def test_deSolve_compatibility(self, simple_model_str):
         """Test key compatibility features inspired by deSolve R package implementation."""
@@ -484,17 +493,20 @@ class TestScipyModel:
         model.add_event(time=3.14159, state_var="A", value=2.718, method="multiply")
 
         times = np.array([0, 1, 2, 3, 4, 5])
-        
+
         # Test that the expected warning is generated (deSolve-like behavior)
-        with pytest.warns(UserWarning, match="Not all event times were in output times, automatically including"):
+        with pytest.warns(
+            UserWarning, match="Not all event times were in output times, automatically including"
+        ):
             result = model.run_model(times)
 
         # deSolve behavior: event times automatically included
         assert 3.14159 in result.times, "deSolve-like: event time should be auto-included"
 
         # deSolve behavior: no duplicate time points
-        assert len(result.times) == len(np.unique(result.times)), \
+        assert len(result.times) == len(np.unique(result.times)), (
             "deSolve-like: no duplicate timestamps"
+        )
 
         # deSolve behavior: time array remains sorted
         assert np.all(np.diff(result.times) > 0), "deSolve-like: sorted time array"
@@ -819,7 +831,7 @@ class TestScipyModel:
         assert "clearance" in model.parameters
 
         # Calculate expected values
-        expected_Q_C = 5.0 * (70.0 ** 0.75)
+        expected_Q_C = 5.0 * (70.0**0.75)
         expected_V_body = 70.0 / 1000.0
         expected_clearance = expected_Q_C * 0.1
 
@@ -868,7 +880,7 @@ class TestScipyModel:
         assert model.parameters["base_rate"] == 2.0
         assert model.parameters["multiplier"] == 3.0
         assert model.parameters["derived_rate"] == 6.0  # 2.0 * 3.0
-        assert model.parameters["final_rate"] == 7.0    # 6.0 + 1.0
+        assert model.parameters["final_rate"] == 7.0  # 6.0 + 1.0
 
         # Update base parameter
         model.update_constants(base_rate=4.0)
@@ -877,7 +889,7 @@ class TestScipyModel:
         assert model.parameters["base_rate"] == 4.0
         assert model.parameters["multiplier"] == 3.0
         assert model.parameters["derived_rate"] == 12.0  # 4.0 * 3.0
-        assert model.parameters["final_rate"] == 13.0    # 12.0 + 1.0
+        assert model.parameters["final_rate"] == 13.0  # 12.0 + 1.0
 
         # Verify Y0 is unchanged
         assert model.Y0["X"] == 1.0
@@ -914,7 +926,7 @@ class TestScipyModel:
         model = ScipyModel(model_str)
 
         # Initial values
-        assert model.parameters["sum_ab"] == 3.0    # 1.0 + 2.0
+        assert model.parameters["sum_ab"] == 3.0  # 1.0 + 2.0
         assert model.parameters["product_abc"] == 6.0  # 1.0 * 2.0 * 3.0
 
         # Update multiple parameters
@@ -924,7 +936,7 @@ class TestScipyModel:
         assert model.parameters["a"] == 2.0
         assert model.parameters["b"] == 4.0
         assert model.parameters["c"] == 3.0
-        assert model.parameters["sum_ab"] == 6.0    # 2.0 + 4.0
+        assert model.parameters["sum_ab"] == 6.0  # 2.0 + 4.0
         assert model.parameters["product_abc"] == 24.0  # 2.0 * 4.0 * 3.0
 
     def test_calculated_parameters_reset_to_defaults(self):
@@ -1031,7 +1043,7 @@ class TestScipyModel:
         Q_LC = 0.21
         V_LC = 0.04
 
-        expected_Q_C = Q_CC * (M ** 0.75)
+        expected_Q_C = Q_CC * (M**0.75)
         expected_Q_L = Q_LC * expected_Q_C
         expected_V_L = V_LC * M
 
@@ -1044,7 +1056,7 @@ class TestScipyModel:
         new_M = 0.5
         model.update_constants(M=new_M)
 
-        new_Q_C = Q_CC * (new_M ** 0.75)
+        new_Q_C = Q_CC * (new_M**0.75)
         new_Q_L = Q_LC * new_Q_C
         new_V_L = V_LC * new_M
 
@@ -1128,11 +1140,11 @@ class TestScipyModelErrorHandling:
         model.add_event(time=6.0, state_var="A", value=-5.0)  # Negative value
 
         times = np.linspace(0, 10, 101)
-        
+
         # Should get warnings about automatically including event times and numerical tolerance
         with pytest.warns(UserWarning):
             result = model.run_model(times)
-            
+
         assert isinstance(result, ComputedModel)
 
     def test_event_method_validation(self, simple_model_str):
@@ -1183,56 +1195,56 @@ def test_reset_to_defaults():
     """Test reset_to_defaults functionality for both parameters and Y0."""
     model_str = """
     States = { A };
-    
+
     Inputs = { dose };
-    
+
     # Parameters with default values
     ke = 0.5;
     ka = 1.0;
-    
+
     Initialize {
         A = 10.0;
     }
-    
+
     Dynamics {
         dt(A) = -ke * A + dose;
     }
-    
+
     End.
     """
 
     model = ScipyModel(model_str)
-    
+
     # Store original default values
     original_parameters = model.parameters.copy()
     original_Y0 = model.Y0.copy()
-    
+
     # Update some parameters and Y0 values
     model.update_constants(ke=2.0, ka=3.0)
     model.update_Y0(A=20.0)
-    
+
     # Verify they changed
     assert model.parameters["ke"] == 2.0
     assert model.parameters["ka"] == 3.0
     assert model.Y0["A"] == 20.0
-    
+
     # Test reset_to_defaults=True for parameters
     model.update_constants(reset_to_defaults=True, ke=1.5)
     assert model.parameters["ke"] == 1.5  # Updated value
     assert model.parameters["ka"] == 1.0  # Reset to default
-    
+
     # Test reset_to_defaults=True for Y0
     model.update_Y0(reset_to_defaults=True, A=15.0)
     assert model.Y0["A"] == 15.0  # Updated value
-    
+
     # Test reset_to_defaults=False (default behavior)
     model.update_constants(ke=5.0)  # Should only update ke, not reset others
     assert model.parameters["ke"] == 5.0
     assert model.parameters["ka"] == 1.0  # Should remain unchanged
-    
+
     model.update_Y0(A=25.0)  # Should only update A
     assert model.Y0["A"] == 25.0
-    
+
     # Full reset test
     model.update_constants(reset_to_defaults=True)
     model.update_Y0(reset_to_defaults=True)

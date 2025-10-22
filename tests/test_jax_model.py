@@ -616,7 +616,7 @@ class TestJaxModel:
         assert "clearance" in model.parameters
 
         # Calculate expected values
-        expected_Q_C = 5.0 * (70.0 ** 0.75)
+        expected_Q_C = 5.0 * (70.0**0.75)
         expected_V_body = 70.0 / 1000.0
         expected_clearance = expected_Q_C * 0.1
 
@@ -665,7 +665,7 @@ class TestJaxModel:
         assert model.parameters["base_rate"] == 2.0
         assert model.parameters["multiplier"] == 3.0
         assert model.parameters["derived_rate"] == 6.0  # 2.0 * 3.0
-        assert model.parameters["final_rate"] == 7.0    # 6.0 + 1.0
+        assert model.parameters["final_rate"] == 7.0  # 6.0 + 1.0
 
         # Update base parameter
         model.update_constants(base_rate=4.0)
@@ -674,7 +674,7 @@ class TestJaxModel:
         assert model.parameters["base_rate"] == 4.0
         assert model.parameters["multiplier"] == 3.0
         assert model.parameters["derived_rate"] == 12.0  # 4.0 * 3.0
-        assert model.parameters["final_rate"] == 13.0    # 12.0 + 1.0
+        assert model.parameters["final_rate"] == 13.0  # 12.0 + 1.0
 
         # Verify Y0 is unchanged
         assert model.Y0["X"] == 1.0
@@ -711,7 +711,7 @@ class TestJaxModel:
         model = JaxModel(model_str)
 
         # Initial values
-        assert model.parameters["sum_ab"] == 3.0    # 1.0 + 2.0
+        assert model.parameters["sum_ab"] == 3.0  # 1.0 + 2.0
         assert model.parameters["product_abc"] == 6.0  # 1.0 * 2.0 * 3.0
 
         # Update multiple parameters
@@ -721,7 +721,7 @@ class TestJaxModel:
         assert model.parameters["a"] == 2.0
         assert model.parameters["b"] == 4.0
         assert model.parameters["c"] == 3.0
-        assert model.parameters["sum_ab"] == 6.0    # 2.0 + 4.0
+        assert model.parameters["sum_ab"] == 6.0  # 2.0 + 4.0
         assert model.parameters["product_abc"] == 24.0  # 2.0 * 4.0 * 3.0
 
     def test_calculated_parameters_reset_to_defaults(self):
@@ -828,7 +828,7 @@ class TestJaxModel:
         Q_LC = 0.21
         V_LC = 0.04
 
-        expected_Q_C = Q_CC * (M ** 0.75)
+        expected_Q_C = Q_CC * (M**0.75)
         expected_Q_L = Q_LC * expected_Q_C
         expected_V_L = V_LC * M
 
@@ -841,7 +841,7 @@ class TestJaxModel:
         new_M = 0.5
         model.update_constants(M=new_M)
 
-        new_Q_C = Q_CC * (new_M ** 0.75)
+        new_Q_C = Q_CC * (new_M**0.75)
         new_Q_L = Q_LC * new_Q_C
         new_V_L = V_LC * new_M
 

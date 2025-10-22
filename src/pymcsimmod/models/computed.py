@@ -95,7 +95,7 @@ class ComputedModel(BaseModel):
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
         if legend:
-            ax.legend(loc='best')
+            ax.legend(loc="best")
         return ax
 
     def plot_inputs(
@@ -143,7 +143,7 @@ class ComputedModel(BaseModel):
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
         if legend:
-            ax.legend(loc='best')
+            ax.legend(loc="best")
         return ax
 
     def __getitem__(self, key: int | str) -> np.ndarray:

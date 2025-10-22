@@ -192,8 +192,16 @@ class EqxModel(eqx.Module):
         stepsize_controller = diffrax.PIDController(rtol=rtol, atol=atol)
         saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t_end, len(times)))
         sol = diffrax.diffeqsolve(
-            ode_term, solver, t0=t0, t1=t_end, dt0=dt0, y0=y_init, saveat=saveat,
-            max_steps=max_steps, stepsize_controller=stepsize_controller, args=()
+            ode_term,
+            solver,
+            t0=t0,
+            t1=t_end,
+            dt0=dt0,
+            y0=y_init,
+            saveat=saveat,
+            max_steps=max_steps,
+            stepsize_controller=stepsize_controller,
+            args=(),
         )
 
         # Check for NaN values in the solution and provide helpful guidance
@@ -201,7 +209,7 @@ class EqxModel(eqx.Module):
             raise ValueError(
                 f"JAX model integration produced NaN values. This often indicates numerical "
                 f"instability. Try the following fixes:\n"
-                f"1. Use a smaller initial step size: run_model(times, dt0={dt0/100:.6f})\n"
+                f"1. Use a smaller initial step size: run_model(times, dt0={dt0 / 100:.6f})\n"
                 f"2. Try a different solver: run_model(times, solver=diffrax.Dopri5())\n"
                 f"3. For stiff systems, consider: run_model(times, solver=diffrax.Kvaerno5())\n"
                 f"4. If the issue persists, try the ScipyModel backend instead.\n"
@@ -221,7 +229,7 @@ class EqxModel(eqx.Module):
                 f"JAX model calculated outputs contain NaN values. This may indicate issues "
                 f"with auxiliary calculations (e.g., division by zero). Consider:\n"
                 f"1. Checking for zero denominators in your model equations\n"
-                f"2. Using a smaller step size: dt0={dt0/100:.6f}\n"
+                f"2. Using a smaller step size: dt0={dt0 / 100:.6f}\n"
                 f"3. Switching to ScipyModel for better numerical stability"
             )
         # Return the compiled forcing functions for plotting
@@ -248,7 +256,15 @@ class JaxModel(OdeModel):
         """Placeholder - actual implementation is in EqxModel."""
         raise NotImplementedError("This method should be implemented in equinox module class.")
 
-    def run_model(self, times: Sequence[int, float], max_steps=100000, dt0=0.001, solver=None, rtol=1e-9, atol=1e-11) -> ComputedModel:
+    def run_model(
+        self,
+        times: Sequence[int, float],
+        max_steps=100000,
+        dt0=0.001,
+        solver=None,
+        rtol=1e-9,
+        atol=1e-11,
+    ) -> ComputedModel:
         """
         Solve the ODE system using diffrax (JAX backend) and return a ComputedModel.
 
@@ -279,7 +295,9 @@ class JaxModel(OdeModel):
             - If mass balance is critical, compare with ScipyModel results
         """
         eqx_model = self._to_eqx()
-        sol, calc_outputs, input_functions = eqx_model.run_model(times, max_steps=max_steps, dt0=dt0, solver=solver, rtol=rtol, atol=atol)
+        sol, calc_outputs, input_functions = eqx_model.run_model(
+            times, max_steps=max_steps, dt0=dt0, solver=solver, rtol=rtol, atol=atol
+        )
         return ComputedModel(
             times=np.asarray(sol.ts),
             states=np.asarray(sol.ys),

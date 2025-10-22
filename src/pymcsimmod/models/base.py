@@ -48,10 +48,10 @@ class OdeModel(ABC):
         Assign the parameters and initial conditions (Y0) from the model tree to the model instance.
         """
         self.parameters = self.model_tree.parameters.copy()
-        
+
         # Add calculated parameters from Initialize section
         self._extract_calculated_parameters()
-        
+
         self.Y0 = self._evaluate_Y0()  # dict(state_var_name: value)
 
     def _extract_calculated_parameters(self) -> None:
@@ -61,16 +61,18 @@ class OdeModel(ABC):
         """
         # Get the list of state variable names
         state_names = self.model_tree.states
-        
+
         # Extract calculated parameters from Initialize section
         context = self.parameters.copy()  # Use current parameters as evaluation context
         approach = self._get_approach()  # Get the appropriate approach from subclass
-        
+
         for section in self.model_tree.sections:
             if isinstance(section, InitializeSection):
                 for statement in section.statements:
                     var_name = (
-                        statement.lhs.eval() if hasattr(statement.lhs, "eval") else statement.lhs.name
+                        statement.lhs.eval()
+                        if hasattr(statement.lhs, "eval")
+                        else statement.lhs.name
                     )
                     # If this variable is not a state variable, it's a calculated parameter
                     if var_name not in state_names:
@@ -108,7 +110,9 @@ class OdeModel(ABC):
             if isinstance(section, InitializeSection):
                 for statement in section.statements:
                     var_name = (
-                        statement.lhs.eval() if hasattr(statement.lhs, "eval") else statement.lhs.name
+                        statement.lhs.eval()
+                        if hasattr(statement.lhs, "eval")
+                        else statement.lhs.name
                     )
                     # Only include state variables in Y0
                     if var_name in state_names:
