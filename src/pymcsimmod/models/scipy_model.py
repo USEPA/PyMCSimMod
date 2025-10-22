@@ -261,17 +261,32 @@ class ScipyModel(OdeModel):
                 method="BDF",
             )
         else:
-            # Handle discrete events by integrating between event times
-            event_times = [e.time for e in self.events if times[0] <= e.time <= times[-1]]
+            # Handle discrete events using deSolve-inspired approach
+            from .event_utils import apply_events_at_time, check_events
 
-            # Apply any events that occur at the start time
+            # Validate events and potentially modify output times
+            validated_events, modified_times = check_events(
+                self.events, times, self.state_names
+            )
+
+            # If times were modified, update our time array
+            if not np.array_equal(times, modified_times):
+                times = modified_times
+
+            # Get event times within simulation range
+            event_times = [e.time for e in validated_events if times[0] <= e.time <= times[-1]]
+
+            # Apply events at start time if any
             current_y = y_init.copy()
-            if times[0] in event_times:
-                state_dict = {name: current_y[i] for i, name in enumerate(self.state_names)}
-                state_dict = self.apply_events_at_time(times[0], state_dict)
-                current_y = np.array([state_dict[name] for name in self.state_names])
+            if event_times and abs(event_times[0] - times[0]) < 1e-12:
+                current_y = np.array([
+                    apply_events_at_time(times[0],
+                                       {name: current_y[i] for i, name in enumerate(self.state_names)},
+                                       validated_events)[name]
+                    for name in self.state_names
+                ])
 
-            # Create segments between events (excluding events at start time as they're already applied)
+            # Create segments between event times
             segments = []
             t_start = times[0]
 
@@ -322,38 +337,21 @@ class ScipyModel(OdeModel):
                     # Note: Keep current_y as 1D for next solve_ivp call
                     # (vectorized reshaping is handled within the model function)
 
-                # Apply events at seg_end if there are any
+                # Apply events at segment end time if any
                 if seg_end in event_times:
                     state_dict = {name: current_y[i] for i, name in enumerate(self.state_names)}
-                    state_dict = self.apply_events_at_time(seg_end, state_dict)
+                    state_dict = apply_events_at_time(seg_end, state_dict, validated_events)
                     current_y = np.array([state_dict[name] for name in self.state_names])
-                    # Note: Keep current_y as 1D for next solve_ivp call
-
-            # Handle events at simulation end time
-            final_event_applied = False
-            if times[-1] in event_times:
-                # If there's an event at the final time, apply it and add the result to the solution
-                state_dict = {name: current_y[i] for i, name in enumerate(self.state_names)}
-                state_dict = self.apply_events_at_time(times[-1], state_dict)
-                current_y = np.array([state_dict[name] for name in self.state_names])
-                final_event_applied = True
 
             # Combine all solutions
             if all_sol_times:
                 combined_times = np.concatenate(all_sol_times)
                 combined_states = np.concatenate(all_sol_states, axis=1)
 
-                # If we applied a final event, add that state to the solution
-                if final_event_applied:
-                    # Check if the final time is already in the solution
-                    if not np.any(np.abs(combined_times - times[-1]) < 1e-12):
-                        # Add the final time and state after the event
-                        combined_times = np.append(combined_times, times[-1])
-                        combined_states = np.column_stack([combined_states, current_y])
-                    else:
-                        # Replace the existing final state with the post-event state
-                        final_idx = np.argmin(np.abs(combined_times - times[-1]))
-                        combined_states[:, final_idx] = current_y
+                # Remove duplicate time points that may arise from segment boundaries
+                unique_indices = np.unique(combined_times, return_index=True)[1]
+                combined_times = combined_times[unique_indices]
+                combined_states = combined_states[:, unique_indices]
 
                 # Create a mock solution object compatible with the rest of the code
                 class MockSolution:
