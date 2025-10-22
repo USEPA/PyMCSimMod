@@ -147,6 +147,42 @@ class TestScipyModel:
         assert result.states.shape[0] == len(times)
         assert result.states.shape[1] == len(model.state_names)
 
+    def test_run_model_methods(self, simple_model_str):
+        """Test run_model with different integration methods."""
+        model = ScipyModel(simple_model_str)
+        model.update_Y0(A=10.0)  # Set initial condition
+        times = np.linspace(0, 5, 11)
+
+        # Test default method (BDF)
+        result_default = model.run_model(times)
+        assert isinstance(result_default, ComputedModel)
+        assert len(result_default.times) == len(times)
+
+        # Test explicit BDF method
+        result_bdf = model.run_model(times, method="BDF")
+        assert isinstance(result_bdf, ComputedModel)
+        np.testing.assert_allclose(result_default.states, result_bdf.states, rtol=1e-10)
+
+        # Test RK45 method
+        result_rk45 = model.run_model(times, method="RK45")
+        assert isinstance(result_rk45, ComputedModel)
+        assert len(result_rk45.times) == len(times)
+
+        # Test LSODA method
+        result_lsoda = model.run_model(times, method="LSODA")
+        assert isinstance(result_lsoda, ComputedModel)
+        assert len(result_lsoda.times) == len(times)
+
+        # Results should be similar (within reasonable tolerance)
+        # for this simple exponential decay problem
+        final_bdf = result_bdf.states[-1, 0]
+        final_rk45 = result_rk45.states[-1, 0]
+        final_lsoda = result_lsoda.states[-1, 0]
+
+        # Allow for some numerical differences between methods
+        assert abs(final_bdf - final_rk45) / final_bdf < 0.01
+        assert abs(final_bdf - final_lsoda) / final_bdf < 0.01
+
     def test_model_method(self, simple_model_str):
         """Test the model method (ODE right-hand side)."""
         model = ScipyModel(simple_model_str)

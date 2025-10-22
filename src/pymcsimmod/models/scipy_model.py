@@ -226,13 +226,16 @@ class ScipyModel(OdeModel):
         event.direction = 0
         return event
 
-    def run_model(self, times: Sequence[int, float]) -> ComputedModel:
+    def run_model(self, times: Sequence[int | float], method: str = "BDF") -> ComputedModel:
         """
         Solve the ODE system using scipy.integrate.solve_ivp and return a ComputedModel.
         Handles discrete events by integrating between event times and applying events.
 
         Args:
             times: Sequence of time points to solve at.
+            method: Integration method for solve_ivp. Default is 'BDF'.
+                   See scipy.integrate.solve_ivp documentation for available methods:
+                   'RK45', 'RK23', 'DOP853', 'Radau', 'BDF', 'LSODA'.
 
         Returns:
             ComputedModel containing the solution.
@@ -258,7 +261,7 @@ class ScipyModel(OdeModel):
                 t_eval=all_times,
                 vectorized=use_vectorized,
                 events=events,
-                method="BDF",
+                method=method,
             )
         else:
             # Handle discrete events using deSolve-inspired approach
@@ -326,7 +329,7 @@ class ScipyModel(OdeModel):
                         t_eval=seg_all_times,
                         vectorized=use_vectorized,
                         events=seg_events,
-                        method="BDF",
+                        method=method,
                     )
 
                     all_sol_times.append(seg_sol.t)
@@ -368,7 +371,7 @@ class ScipyModel(OdeModel):
                     y0=y_init,
                     t_eval=times,
                     vectorized=use_vectorized,
-                    method="BDF",
+                    method=method,
                 )
 
         self.sol = sol  # Store the raw solution with ScipyModel
