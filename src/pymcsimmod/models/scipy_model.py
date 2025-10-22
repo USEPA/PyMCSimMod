@@ -264,14 +264,21 @@ class ScipyModel(OdeModel):
             # Handle discrete events by integrating between event times
             event_times = [e.time for e in self.events if times[0] <= e.time <= times[-1]]
 
-            # Create segments between events
+            # Apply any events that occur at the start time
+            current_y = y_init.copy()
+            if times[0] in event_times:
+                state_dict = {name: current_y[i] for i, name in enumerate(self.state_names)}
+                state_dict = self.apply_events_at_time(times[0], state_dict)
+                current_y = np.array([state_dict[name] for name in self.state_names])
+
+            # Create segments between events (excluding events at start time as they're already applied)
             segments = []
             t_start = times[0]
 
             for event_time in sorted(event_times):
                 if event_time > t_start:
                     segments.append((t_start, event_time))
-                t_start = event_time
+                    t_start = event_time
 
             # Add final segment
             if t_start < times[-1]:
@@ -280,7 +287,6 @@ class ScipyModel(OdeModel):
             # Integrate each segment
             all_sol_times = []
             all_sol_states = []
-            current_y = y_init.copy()
 
             for i, (seg_start, seg_end) in enumerate(segments):
                 # Get times for this segment
@@ -313,23 +319,41 @@ class ScipyModel(OdeModel):
 
                     # Update current state to end of segment
                     current_y = seg_sol.y[:, -1]
-                    # Ensure proper shape for vectorized operations if needed
-                    if use_vectorized and current_y.ndim == 1:
-                        current_y = current_y.reshape(-1, 1)
+                    # Note: Keep current_y as 1D for next solve_ivp call
+                    # (vectorized reshaping is handled within the model function)
 
                 # Apply events at seg_end if there are any
                 if seg_end in event_times:
                     state_dict = {name: current_y[i] for i, name in enumerate(self.state_names)}
                     state_dict = self.apply_events_at_time(seg_end, state_dict)
                     current_y = np.array([state_dict[name] for name in self.state_names])
-                    # Ensure proper shape for vectorized operations if needed
-                    if use_vectorized and current_y.ndim == 1:
-                        current_y = current_y.reshape(-1, 1)
+                    # Note: Keep current_y as 1D for next solve_ivp call
+
+            # Handle events at simulation end time
+            final_event_applied = False
+            if times[-1] in event_times:
+                # If there's an event at the final time, apply it and add the result to the solution
+                state_dict = {name: current_y[i] for i, name in enumerate(self.state_names)}
+                state_dict = self.apply_events_at_time(times[-1], state_dict)
+                current_y = np.array([state_dict[name] for name in self.state_names])
+                final_event_applied = True
 
             # Combine all solutions
             if all_sol_times:
                 combined_times = np.concatenate(all_sol_times)
                 combined_states = np.concatenate(all_sol_states, axis=1)
+
+                # If we applied a final event, add that state to the solution
+                if final_event_applied:
+                    # Check if the final time is already in the solution
+                    if not np.any(np.abs(combined_times - times[-1]) < 1e-12):
+                        # Add the final time and state after the event
+                        combined_times = np.append(combined_times, times[-1])
+                        combined_states = np.column_stack([combined_states, current_y])
+                    else:
+                        # Replace the existing final state with the post-event state
+                        final_idx = np.argmin(np.abs(combined_times - times[-1]))
+                        combined_states[:, final_idx] = current_y
 
                 # Create a mock solution object compatible with the rest of the code
                 class MockSolution:
