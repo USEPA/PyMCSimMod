@@ -19,9 +19,11 @@ class OdeModel(ABC):
         Load and parse a model from a file path or string, initializing parameters and initial conditions.
 
         Args:
-            model: Path to model file or model string.
+            model: Path to model file (as string or Path object) or model content as string.
+                  If a string that represents a valid file path, it will be treated as a file path.
+                  Otherwise, it will be treated as model content.
         """
-        model_str = model.read_text() if isinstance(model, Path) else model
+        model_str = self._resolve_model_input(model)
 
         parser = ModelParser()
         parsed_model = parser.parse(model_str)
@@ -42,6 +44,36 @@ class OdeModel(ABC):
         }
         # Initialize events list
         self.events = []
+
+    def _resolve_model_input(self, model: str | Path) -> str:
+        """
+        Resolve model input to string content, handling both file paths and direct content.
+
+        Args:
+            model: Path to model file (as string or Path object) or model content as string.
+
+        Returns:
+            Model content as string.
+
+        Raises:
+            TypeError: If model is not a string or Path object.
+        """
+        if isinstance(model, Path):
+            return model.read_text()
+
+        if isinstance(model, str):
+            # Quick check: if string has newlines or is very long, treat as model content
+            # Can not run Path(model).exists() on very long stings
+            if "\n" in model or len(model) > 500:
+                return model
+
+            # Otherwise, check if it's a file path
+            potential_path = Path(model)
+            if potential_path.exists() and potential_path.is_file():
+                return potential_path.read_text()
+            return model  # Treat as model content
+
+        raise TypeError(f"model must be a string or Path object, got {type(model)}")
 
     def _init_parameters(self) -> None:
         """
