@@ -1,5 +1,7 @@
 """ComputedModel class for ODE solution results."""
 
+from collections.abc import Callable
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -26,9 +28,11 @@ class ComputedModel(BaseModel):
     times: NumericArray
     states: NumericArray
     var_names: list[str]
-    aux_outputs: NumericArray  # shape (n_times, n_calcs)
-    aux_names: list[str]
-    input_functions: dict | None = None  # Maps input name to callable
+    aux_outputs: NumericArray | None = None  # shape (n_times, n_calcs)
+    aux_names: list[str] | None = None
+    input_functions: dict[str, Callable[[float], float]] | None = (
+        None  # Maps input name to callable
+    )
 
     @property
     def dataframe(self) -> pd.DataFrame:

@@ -1,11 +1,13 @@
 """ScipyModel implementation for ODE solving using scipy.integrate."""
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import scipy.integrate as sci
 
+from ..extra_typing import NumericArray
 from ..model import Approach
 from ..utils.context import build_evaluation_context
 from .base import OdeModel
@@ -29,7 +31,7 @@ class ScipyModel(OdeModel):
         return Approach.SCIPY
 
     @staticmethod
-    def OnOff(t0, t1, s=10.0):
+    def OnOff(t0: float, t1: float, s: float = 10.0) -> Callable[[float], float]:
         """
         On-off forcing function.
 
@@ -42,14 +44,16 @@ class ScipyModel(OdeModel):
             Function that takes time t and returns on/off value between 0 and 1.
         """
 
-        def func(t):
+        def func(t: float) -> float:
             y = (np.tanh(s * (t - t0)) - np.tanh(s * (t - t1))) / 2
             return y
 
         return func
 
     @staticmethod
-    def PerDose(t0, duration, period, s=10.0):
+    def PerDose(
+        t0: float, duration: float, period: float, s: float = 10.0
+    ) -> Callable[[float], float]:
         """
         Returns a function of t for periodic dosing using OnOff, with parameters fixed.
 
@@ -63,7 +67,7 @@ class ScipyModel(OdeModel):
             Function that takes time t and returns dose value.
         """
 
-        def func(t):
+        def func(t: float) -> float:
             if t < t0:
                 return 0.0
             n = int((t - t0) // period)
@@ -74,7 +78,7 @@ class ScipyModel(OdeModel):
         return func
 
     @staticmethod
-    def ZeroFunc():
+    def ZeroFunc() -> Callable[[float], float]:
         """
         Default static method for forcing functions: always returns zero for any t input.
 
@@ -82,13 +86,13 @@ class ScipyModel(OdeModel):
             Function that always returns 0.0.
         """
 
-        def func(t):
+        def func(t: float) -> float:
             return 0.0
 
         return func
 
     @staticmethod
-    def ConstFunc(value):
+    def ConstFunc(value: float) -> Callable[[float], float]:
         """
         Static method for constant forcing functions: always returns the specified value for any t input.
 
@@ -99,13 +103,15 @@ class ScipyModel(OdeModel):
             Function that always returns the specified constant value.
         """
 
-        def func(t):
+        def func(t: float) -> float:
             return float(value)
 
         return func
 
     @staticmethod
-    def NDoses(t0_list, duration, s=10.0):
+    def NDoses(
+        t0_list: Sequence[float], duration: float, s: float = 10.0
+    ) -> Callable[[float], float]:
         """
         Returns a function of t for multiple dosing using OnOff, with parameters fixed.
 
@@ -118,13 +124,15 @@ class ScipyModel(OdeModel):
             Function that takes time t and returns dose value.
         """
 
-        def func(t):
+        def func(t: float) -> float:
             return sum(ScipyModel.OnOff(t0, t0 + duration, s)(t) for t0 in t0_list)
 
         return func
 
     @staticmethod
-    def InterpolatedForcing(times, values, **kwargs):
+    def InterpolatedForcing(
+        times: NumericArray, values: NumericArray, **kwargs: Any
+    ) -> Callable[[float], float]:
         """
         Create an interpolated forcing function from time-value data.
 
@@ -141,7 +149,7 @@ class ScipyModel(OdeModel):
         forcing = InterpolatedForcing(times, values, **kwargs)
         return forcing.create_function("scipy")
 
-    def build_context(self, state_vals, t):
+    def build_context(self, state_vals: np.ndarray, t: float) -> dict[str, Any]:
         """
         Build the context dictionary for a given state vector and time.
         Includes state variables, parameters, forcing functions, and dynamic calcs/outputs.
@@ -187,7 +195,7 @@ class ScipyModel(OdeModel):
 
         return context
 
-    def model(self, t: float, y: np.ndarray, args: None = None) -> np.ndarray:
+    def model(self, t: float, y: np.ndarray, args: Any = None) -> np.ndarray:
         """
         ODE right-hand side function for use with scipy.integrate.solve_ivp.
         Computes the time derivatives for the system of ODEs using the current state and parameters.
@@ -208,7 +216,7 @@ class ScipyModel(OdeModel):
             dydt.append(val)
         return np.array(dydt)
 
-    def make_event_switch(self, time):
+    def make_event_switch(self, time: float) -> Callable[[float, np.ndarray], float]:
         """
         Create an event function for scipy.integrate that triggers at a specific time.
 
@@ -219,7 +227,7 @@ class ScipyModel(OdeModel):
             Event function for scipy.integrate.
         """
 
-        def event(t, y):
+        def event(t: float, y: np.ndarray) -> float:
             return t - time
 
         event.terminal = False
@@ -381,7 +389,7 @@ class ScipyModel(OdeModel):
         # Vectorized calculation of outputs (from self.outputs) for each time point
         output_names = self.outputs
 
-        def calc_outputs_single(state_vals, t):
+        def calc_outputs_single(state_vals: np.ndarray, t: float) -> np.ndarray:
             context = self.build_context(state_vals, t)
             return np.array([context[name] for name in output_names], dtype=np.float64)
 
@@ -391,7 +399,7 @@ class ScipyModel(OdeModel):
         )
 
         # Build input_functions dict: input name -> callable
-        input_functions = {}
+        input_functions: dict[str, Callable[[float], float]] = {}
         for input_name, ff in self.forcing_functions.items():
             if isinstance(ff, dict) and "function" in ff:
                 func_name = ff["function"]

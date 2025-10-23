@@ -1,7 +1,8 @@
 """JAX-based model implementations using diffrax and equinox."""
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any
 
 import diffrax
 import equinox as eqx
@@ -9,6 +10,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from ..extra_typing import NumericArray
 from ..model import Approach
 from .base import OdeModel
 from .computed import ComputedModel
@@ -17,17 +19,17 @@ from .computed import ComputedModel
 class EqxModel(eqx.Module):
     """Modern JAX model using equinox with event handling awareness."""
 
-    parameters: dict = eqx.field()  # Constants
-    forcing_functions: dict = eqx.field()  # Forcing functions for inputs
-    Y0: dict = eqx.field()  # State variable initial conditions
-    events: list = eqx.field()  # Discrete events
-    model_tree: object = eqx.field(static=True)
-    state_names: tuple = eqx.field()
-    output_names: tuple = eqx.field()
+    parameters: dict[str, float] = eqx.field()  # Constants
+    forcing_functions: dict[str, Callable] = eqx.field()  # Forcing functions for inputs
+    Y0: dict[str, float] = eqx.field()  # State variable initial conditions
+    events: list[Any] = eqx.field()  # Discrete events
+    model_tree: Any = eqx.field(static=True)
+    state_names: tuple[str, ...] = eqx.field()
+    output_names: tuple[str, ...] = eqx.field()
 
     @staticmethod
     @jax.jit
-    def OnOff(t, t0, t1, s=10.0):
+    def OnOff(t: float, t0: float, t1: float, s: float = 10.0) -> jnp.ndarray:
         """JAX-compiled on-off forcing function."""
         t = jnp.asarray(t)
         t0 = jnp.asarray(t0)
@@ -35,7 +37,9 @@ class EqxModel(eqx.Module):
         return (jnp.tanh(s * (t - t0)) - jnp.tanh(s * (t - t1))) / 2
 
     @staticmethod
-    def PerDose(t0, duration, period, s=10.0):
+    def PerDose(
+        t0: float, duration: float, period: float, s: float = 10.0
+    ) -> Callable[[float], jnp.ndarray]:
         """JAX-compiled periodic dosing function."""
         t0 = float(t0)
         duration = float(duration)
@@ -52,7 +56,9 @@ class EqxModel(eqx.Module):
         return func
 
     @staticmethod
-    def NDoses(t0_list, duration, s=10.0):
+    def NDoses(
+        t0_list: Sequence[float], duration: float, s: float = 10.0
+    ) -> Callable[[float], jnp.ndarray]:
         """JAX-compiled multiple dosing function."""
         t0_arr = jnp.array(t0_list)
         duration = float(duration)
@@ -65,7 +71,9 @@ class EqxModel(eqx.Module):
         return func
 
     @staticmethod
-    def InterpolatedForcing(times, values, **kwargs):
+    def InterpolatedForcing(
+        times: NumericArray, values: NumericArray, **kwargs: Any
+    ) -> Callable[[float], jnp.ndarray]:
         """
         Create an interpolated forcing function from time-value data for JAX.
 
@@ -83,7 +91,7 @@ class EqxModel(eqx.Module):
         return forcing.create_function("jax")
 
     @staticmethod
-    def ZeroFunc():
+    def ZeroFunc() -> Callable[[float], float]:
         """JAX-compiled zero function."""
 
         @jax.jit
@@ -93,7 +101,7 @@ class EqxModel(eqx.Module):
         return func
 
     @staticmethod
-    def ConstFunc(value):
+    def ConstFunc(value: float) -> Callable[[float], float]:
         """JAX-compiled constant function."""
         value = float(value)  # Ensure value is a float for JAX compatibility
 
@@ -103,7 +111,7 @@ class EqxModel(eqx.Module):
 
         return func
 
-    def compile_forcing_functions(self):
+    def compile_forcing_functions(self) -> None:
         """Convert all dict-based forcing functions to JIT-compiled callables."""
         # Create a new dict to avoid mutating during iteration
         compiled_functions = {}
@@ -127,7 +135,7 @@ class EqxModel(eqx.Module):
         # forcing_functions must be immutable, so use object.__setattr__
         object.__setattr__(self, "forcing_functions", compiled_functions)
 
-    def build_context(self, state_vals, t):
+    def build_context(self, state_vals: jnp.ndarray, t: float) -> dict[str, Any]:
         """Build context dictionary for expression evaluation (JAX-compatible)."""
         # Note: We cannot use the general context utility here because JAX requires
         # fixed structure and pure functions for JIT compilation
@@ -144,7 +152,7 @@ class EqxModel(eqx.Module):
         return context
 
     @eqx.filter_jit
-    def model(self, t, y):
+    def model(self, t: float, y: jnp.ndarray) -> jnp.ndarray:
         """JAX-compiled ODE right-hand side function."""
         context = self.build_context(y, t)
         dydt = [
@@ -153,7 +161,15 @@ class EqxModel(eqx.Module):
         ]
         return jnp.stack(dydt)
 
-    def run_model(self, times, max_steps=100000, dt0=0.001, solver=None, rtol=1e-10, atol=1e-10):
+    def run_model(
+        self,
+        times: Sequence[float],
+        max_steps: int = 100000,
+        dt0: float = 0.001,
+        solver: diffrax.AbstractSolver | None = None,
+        rtol: float = 1e-10,
+        atol: float = 1e-10,
+    ) -> tuple[diffrax.Solution, jnp.ndarray, dict[str, Callable]]:
         """
         Run the JAX model with event handling checks.
 
@@ -162,8 +178,11 @@ class EqxModel(eqx.Module):
             max_steps: Maximum number of solver steps (default: 100000).
             dt0: Initial step size for the solver (default: 0.001).
             solver: Diffrax solver to use. If None, uses Dopri8() (default: None).
-            rtol: Relative tolerance for adaptive step size control (default: 1e-9).
-            atol: Absolute tolerance for adaptive step size control (default: 1e-11).
+            rtol: Relative tolerance for adaptive step size control (default: 1e-10).
+            atol: Absolute tolerance for adaptive step size control (default: 1e-10).
+
+        Returns:
+            Tuple of (solution, calculated outputs, input functions dictionary).
         """
         # Check for events and warn
         if self.events:
@@ -217,7 +236,7 @@ class EqxModel(eqx.Module):
             )
 
         @eqx.filter_jit
-        def calc_outputs_single(state_vals, t):
+        def calc_outputs_single(state_vals: jnp.ndarray, t: float) -> jnp.ndarray:
             context = self.build_context(state_vals, t)
             return jnp.array([context[name] for name in self.output_names], dtype=jnp.float32)
 
@@ -252,18 +271,18 @@ class JaxModel(OdeModel):
         """Get the evaluation approach for JaxModel."""
         return Approach.JAX
 
-    def model(self, t: float, y, args) -> object:
+    def model(self, t: float, y: jnp.ndarray, args: Any) -> object:
         """Placeholder - actual implementation is in EqxModel."""
         raise NotImplementedError("This method should be implemented in equinox module class.")
 
     def run_model(
         self,
-        times: Sequence[int, float],
-        max_steps=100000,
-        dt0=0.001,
-        solver=None,
-        rtol=1e-9,
-        atol=1e-11,
+        times: Sequence[int | float],
+        max_steps: int = 100000,
+        dt0: float = 0.001,
+        solver: diffrax.AbstractSolver | None = None,
+        rtol: float = 1e-9,
+        atol: float = 1e-11,
     ) -> ComputedModel:
         """
         Solve the ODE system using diffrax (JAX backend) and return a ComputedModel.
@@ -307,7 +326,7 @@ class JaxModel(OdeModel):
             input_functions=input_functions,
         )
 
-    def _to_eqx(self):
+    def _to_eqx(self) -> EqxModel:
         """Convert to EqxModel for JAX computation."""
         # Use tuples for state_names/output_names for JAX compatibility
         return EqxModel(
