@@ -263,7 +263,7 @@ class TestScipyModel:
 
         # Events should be sorted by time
         event_times = [event.time for event in model.events]
-        assert event_times == sorted(event_times)
+        np.testing.assert_array_equal(event_times, sorted(event_times))
 
         # Test different event methods
         model.add_event(time=7.0, state_var="A", value=2.0, method="multiply")
