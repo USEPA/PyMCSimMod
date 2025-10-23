@@ -64,7 +64,7 @@ class Number(BaseModel):
 
 
 class MathematicalFunction(BaseModel):
-    func: Literal["log", "log10", "sqrt", "pow", "exp"]
+    func: Literal["log", "log10", "sqrt", "pow", "exp", "fabs"]
     args: list[Expression]
 
     def evaluate(self, context, approach):
@@ -79,6 +79,8 @@ class MathematicalFunction(BaseModel):
             return math.pow(*args)
         if self.func == "exp":
             return math.exp(*args)
+        if self.func == "fabs":
+            return math.fabs(*args)
 
     def to_mod(self) -> str:
         return f"""{self.func}({", ".join(arg.to_mod() for arg in self.args)})"""

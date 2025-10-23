@@ -28,6 +28,7 @@ class ModelLexer:
         "sqrt": "SQRT",
         "pow": "POW",
         "exp": "EXP",
+        "fabs": "FABS",
         # Special functions
         "BetaRandom": "BETA_RANDOM",
     }

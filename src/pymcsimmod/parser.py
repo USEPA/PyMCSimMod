@@ -145,7 +145,8 @@ class ModelParser:
         | LOG10 LPAREN expression RPAREN
         | SQRT LPAREN expression RPAREN
         | POW LPAREN expression COMMA expression RPAREN
-        | EXP LPAREN expression RPAREN"""
+        | EXP LPAREN expression RPAREN
+        | FABS LPAREN expression RPAREN"""
         p[0] = MathematicalFunction(func=p[1], args=p[3::2])
 
     def p_special_function(self, p):
