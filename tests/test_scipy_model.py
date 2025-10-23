@@ -721,7 +721,7 @@ class TestScipyModel:
 
         # Verify the result structure
         assert isinstance(result, ComputedModel)
-        # Events can add duplicate time points, so result may have more time points than input
+        # Events may add new time points (no duplicates), so result may have more time points than input
         assert len(result.times) >= len(times)
         assert result.states.shape == (len(result.times), 1)
 
