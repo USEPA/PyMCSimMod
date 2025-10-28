@@ -1,6 +1,21 @@
-"""Scipy-specific forcing function implementations."""
+"""Scipy-specific forcing function implementations (backward compatibility)."""
 
-import numpy as np
+# Import unified implementations
+from .unified import (
+    create_constantfunc as unified_create_constantfunc,
+)
+from .unified import (
+    create_ndoses as unified_create_ndoses,
+)
+from .unified import (
+    create_onoff as unified_create_onoff,
+)
+from .unified import (
+    create_perdose as unified_create_perdose,
+)
+from .unified import (
+    create_zerofunc as unified_create_zerofunc,
+)
 
 
 def create_onoff(t0: float, t1: float, s: float = 10.0):
@@ -15,21 +30,7 @@ def create_onoff(t0: float, t1: float, s: float = 10.0):
     Returns:
         Function that takes time t and returns on/off value
     """
-
-    def onoff_func(t):
-        """
-        On-off forcing function implementation.
-
-        Args:
-            t: current time
-
-        Returns:
-            Value between 0 and 1 representing on/off state.
-        """
-        y = (np.tanh(s * (t - t0)) - np.tanh(s * (t - t1))) / 2
-        return y
-
-    return onoff_func
+    return unified_create_onoff(t0, t1, s, backend="scipy")
 
 
 def create_perdose(t0: float, duration: float, period: float, s: float = 10.0):
@@ -45,27 +46,7 @@ def create_perdose(t0: float, duration: float, period: float, s: float = 10.0):
     Returns:
         Function that takes time t and returns dose value
     """
-
-    def perdose_func(t):
-        """
-        Periodic dosing function implementation.
-
-        Args:
-            t: current time
-
-        Returns:
-            Dose value at time t
-        """
-        if t < t0:
-            return 0.0
-        n = int((t - t0) // period)
-        start = t0 + n * period
-        stop = start + duration
-        # Use the onoff function for each dose period
-        y = (np.tanh(s * (t - start)) - np.tanh(s * (t - stop))) / 2
-        return y
-
-    return perdose_func
+    return unified_create_perdose(t0, duration, period, s, backend="scipy")
 
 
 def create_ndoses(t0_list: list[float], duration: float, s: float = 10.0):
@@ -80,25 +61,7 @@ def create_ndoses(t0_list: list[float], duration: float, s: float = 10.0):
     Returns:
         Function that takes time t and returns total dose value
     """
-
-    def ndoses_func(t):
-        """
-        Multiple doses function implementation.
-
-        Args:
-            t: current time
-
-        Returns:
-            Sum of all active dose values at time t
-        """
-        total = 0.0
-        for t0 in t0_list:
-            t1 = t0 + duration
-            dose_value = (np.tanh(s * (t - t0)) - np.tanh(s * (t - t1))) / 2
-            total += dose_value
-        return total
-
-    return ndoses_func
+    return unified_create_ndoses(t0_list, duration, s, backend="scipy")
 
 
 def create_zerofunc():
@@ -108,20 +71,7 @@ def create_zerofunc():
     Returns:
         Function that always returns 0.0
     """
-
-    def zero_func(t):
-        """
-        Zero function implementation.
-
-        Args:
-            t: current time (unused)
-
-        Returns:
-            Always returns 0.0
-        """
-        return 0.0
-
-    return zero_func
+    return unified_create_zerofunc(backend="scipy")
 
 
 def create_constantfunc(val: float):
@@ -131,20 +81,7 @@ def create_constantfunc(val: float):
     Returns:
         Function that always returns val
     """
-
-    def constant_func(t):
-        """
-        Zero function implementation.
-
-        Args:
-            t: current time (unused)
-
-        Returns:
-            Always returns val
-        """
-        return float(val)
-
-    return constant_func
+    return unified_create_constantfunc(val, backend="scipy")
 
 
 __all__ = [

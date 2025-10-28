@@ -1,23 +1,46 @@
 """Forcing functions."""
 
-from .base import ForcingFunction, MultiDoseForcing, OnOffForcing, PeriodicForcing
+from .base import (
+    BackendAwareForcing,
+    ForcingFunction,
+    MultiDoseForcing,
+    OnOffForcing,
+    PeriodicForcing,
+    create_forcing_function,
+)
 from .interpolated import InterpolatedForcing, create_interpolated_forcing
-
-try:
-    from . import scipy_functions
-except ImportError:
-    scipy_functions = None
-
-try:
-    from . import jax_functions
-except ImportError:
-    jax_functions = None
+from .unified import (
+    ForcingBackend,
+    JAXBackend,
+    PyTorchBackend,
+    ScipyBackend,
+    TensorFlowBackend,
+    UnifiedForcingFactory,
+    create_constantfunc,
+    create_ndoses,
+    create_onoff,
+    create_perdose,
+    create_zerofunc,
+)
 
 __all__ = [
+    "BackendAwareForcing",
+    "ForcingBackend",
     "ForcingFunction",
     "InterpolatedForcing",
+    "JAXBackend",
     "MultiDoseForcing",
     "OnOffForcing",
     "PeriodicForcing",
+    "PyTorchBackend",
+    "ScipyBackend",
+    "TensorFlowBackend",
+    "UnifiedForcingFactory",
+    "create_constantfunc",
+    "create_forcing_function",
     "create_interpolated_forcing",
+    "create_ndoses",
+    "create_onoff",
+    "create_perdose",
+    "create_zerofunc",
 ]

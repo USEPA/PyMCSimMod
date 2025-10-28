@@ -9,9 +9,9 @@ class TestScipyForcingFunctions:
 
     def test_create_onoff(self):
         """Test scipy OnOff forcing function creation."""
-        from pymcsimmod.forcing.scipy_functions import create_onoff
+        from pymcsimmod.forcing import create_onoff
 
-        onoff_func = create_onoff(1.0, 3.0, 10.0)
+        onoff_func = create_onoff(1.0, 3.0, 10.0, backend="scipy")
 
         # Test at different time points
         assert onoff_func(0.0) < 0.1  # Before start
@@ -26,34 +26,36 @@ class TestScipyForcingFunctions:
 
     def test_create_perdose(self):
         """Test scipy PerDose forcing function creation."""
-        from pymcsimmod.forcing.scipy_functions import create_perdose
+        from pymcsimmod.forcing import create_perdose
 
-        perdose_func = create_perdose(0.0, 1.0, 24.0, 10.0)
+        perdose_func = create_perdose(1.0, 0.5, 2.0, 10.0, backend="scipy")
 
         # Test at different time points
-        assert perdose_func(0.5) > 0.9  # During first dose
-        assert perdose_func(12.0) < 0.1  # Between doses
-        assert perdose_func(24.5) > 0.9  # During second dose
-        assert perdose_func(48.5) > 0.9  # During third dose
+        assert perdose_func(0.5) < 0.1  # Before first dose
+        assert perdose_func(1.25) > 0.9  # During first dose (1.0 + 0.5/2)
+        assert perdose_func(2.0) < 0.1  # Between doses
+        assert perdose_func(3.25) > 0.9  # During second dose (3.0 + 0.5/2)
 
     def test_create_ndoses(self):
         """Test scipy NDoses forcing function creation."""
-        from pymcsimmod.forcing.scipy_functions import create_ndoses
+        from pymcsimmod.forcing import create_ndoses
 
-        t0_list = [0.0, 8.0, 16.0]
-        ndoses_func = create_ndoses(t0_list, 1.0, 10.0)
+        ndoses_func = create_ndoses([1.0, 3.0, 5.0], 0.5, 10.0, backend="scipy")
 
         # Test at different time points
-        assert ndoses_func(0.5) > 0.9  # During first dose
-        assert ndoses_func(4.0) < 0.1  # Between doses
-        assert ndoses_func(8.5) > 0.9  # During second dose
-        assert ndoses_func(16.5) > 0.9  # During third dose
+        assert ndoses_func(0.5) < 0.1  # Before first dose
+        assert ndoses_func(1.25) > 0.9  # During first dose (1.0 + 0.5/2)
+        assert ndoses_func(2.0) < 0.1  # Between first and second dose
+        assert ndoses_func(3.25) > 0.9  # During second dose (3.0 + 0.5/2)
+        assert ndoses_func(4.0) < 0.1  # Between second and third dose
+        assert ndoses_func(5.25) > 0.9  # During third dose (5.0 + 0.5/2)
+        assert ndoses_func(6.0) < 0.1  # After all doses
 
     def test_create_zerofunc(self):
         """Test scipy ZeroFunc creation."""
-        from pymcsimmod.forcing.scipy_functions import create_zerofunc
+        from pymcsimmod.forcing import create_zerofunc
 
-        zero_func = create_zerofunc()
+        zero_func = create_zerofunc(backend="scipy")
 
         # Should always return 0
         assert zero_func(0.0) == 0.0
@@ -88,11 +90,11 @@ class TestScipyForcingFunctions:
 
     def test_smoothing_parameter_effect(self):
         """Test that smoothing parameter affects transition sharpness."""
-        from pymcsimmod.forcing.scipy_functions import create_onoff
+        from pymcsimmod.forcing import create_onoff
 
         # Test different smoothing parameters
-        onoff_smooth = create_onoff(1.0, 2.0, 1.0)  # Low s = smooth
-        onoff_sharp = create_onoff(1.0, 2.0, 100.0)  # High s = sharp
+        onoff_smooth = create_onoff(1.0, 2.0, 1.0, backend="scipy")  # Low s = smooth
+        onoff_sharp = create_onoff(1.0, 2.0, 100.0, backend="scipy")  # High s = sharp
 
         # At the transition point, smooth should be closer to 0.5
         mid_point = 1.5
@@ -113,9 +115,9 @@ class TestJaxForcingFunctions:
         """Test JAX OnOff forcing function creation."""
         import jax.numpy as jnp
 
-        from pymcsimmod.forcing.jax_functions import create_onoff
+        from pymcsimmod.forcing import create_onoff
 
-        onoff_func = create_onoff(1.0, 3.0, 10.0)
+        onoff_func = create_onoff(1.0, 3.0, 10.0, backend="jax")
 
         # Test at different time points
         assert onoff_func(jnp.array(0.0)) < 0.1  # Before start
@@ -126,9 +128,9 @@ class TestJaxForcingFunctions:
         """Test JAX PerDose forcing function creation."""
         import jax.numpy as jnp
 
-        from pymcsimmod.forcing.jax_functions import create_perdose
+        from pymcsimmod.forcing import create_perdose
 
-        perdose_func = create_perdose(0.0, 1.0, 24.0, 10.0)
+        perdose_func = create_perdose(0.0, 1.0, 24.0, 10.0, backend="jax")
 
         # Test at different time points
         assert perdose_func(jnp.array(0.5)) > 0.9  # During first dose
@@ -139,10 +141,10 @@ class TestJaxForcingFunctions:
         """Test JAX NDoses forcing function creation."""
         import jax.numpy as jnp
 
-        from pymcsimmod.forcing.jax_functions import create_ndoses
+        from pymcsimmod.forcing import create_ndoses
 
         t0_list = [0.0, 8.0, 16.0]
-        ndoses_func = create_ndoses(t0_list, 1.0, 10.0)
+        ndoses_func = create_ndoses(t0_list, 1.0, 10.0, backend="jax")
 
         # Test at different time points
         assert ndoses_func(jnp.array(0.5)) > 0.9  # During first dose
@@ -151,9 +153,9 @@ class TestJaxForcingFunctions:
 
     def test_create_zerofunc_jax(self):
         """Test JAX ZeroFunc creation."""
-        from pymcsimmod.forcing.jax_functions import create_zerofunc
+        from pymcsimmod.forcing import create_zerofunc
 
-        zero_func = create_zerofunc()
+        zero_func = create_zerofunc(backend="jax")
 
         # Should always return 0
         result = zero_func(1.0)  # JAX functions expect scalars
@@ -180,10 +182,10 @@ class TestJaxForcingFunctions:
         import jax
         import jax.numpy as jnp
 
-        from pymcsimmod.forcing.jax_functions import create_ndoses, create_onoff, create_perdose
+        from pymcsimmod.forcing import create_ndoses, create_onoff, create_perdose
 
         # Test OnOff JIT compatibility
-        onoff_func = create_onoff(1.0, 3.0, 10.0)
+        onoff_func = create_onoff(1.0, 3.0, 10.0, backend="jax")
         jitted_onoff = jax.jit(onoff_func)
 
         t_test = jnp.array(2.0)
@@ -192,7 +194,7 @@ class TestJaxForcingFunctions:
         np.testing.assert_allclose(result1, result2, rtol=1e-6)
 
         # Test PerDose JIT compatibility
-        perdose_func = create_perdose(0.0, 1.0, 24.0, 10.0)
+        perdose_func = create_perdose(0.0, 1.0, 24.0, 10.0, backend="jax")
         jitted_perdose = jax.jit(perdose_func)
 
         result1 = perdose_func(t_test)
@@ -200,7 +202,7 @@ class TestJaxForcingFunctions:
         np.testing.assert_allclose(result1, result2, rtol=1e-6)
 
         # Test NDoses JIT compatibility
-        ndoses_func = create_ndoses([0.0, 24.0], 1.0, 10.0)
+        ndoses_func = create_ndoses([0.0, 24.0], 1.0, 10.0, backend="jax")
         jitted_ndoses = jax.jit(ndoses_func)
 
         result1 = ndoses_func(t_test)

@@ -935,20 +935,20 @@ class TestJaxCompatibility:
         """Test JAX forcing function implementations."""
         import jax.numpy as jnp
 
-        from pymcsimmod.forcing.jax_functions import create_ndoses, create_onoff, create_perdose
+        from pymcsimmod.forcing import create_ndoses, create_onoff, create_perdose
 
         # Test create_onoff
-        onoff_func = create_onoff(0.5, 2.0, 10.0)
+        onoff_func = create_onoff(0.5, 2.0, 10.0, backend="jax")
         result = onoff_func(jnp.array(1.0))
         assert isinstance(result, jnp.ndarray)
 
         # Test create_perdose
-        perdose_func = create_perdose(0.0, 1.0, 24.0, 10.0)
+        perdose_func = create_perdose(0.0, 1.0, 24.0, 10.0, backend="jax")
         result = perdose_func(jnp.array(12.0))
         assert isinstance(result, jnp.ndarray)
 
         # Test create_ndoses
-        ndoses_func = create_ndoses([0.0, 24.0, 48.0], 1.0, 10.0)
+        ndoses_func = create_ndoses([0.0, 24.0, 48.0], 1.0, 10.0, backend="jax")
         result = ndoses_func(jnp.array(25.0))
         assert isinstance(result, jnp.ndarray)
 

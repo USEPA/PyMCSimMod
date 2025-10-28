@@ -4,10 +4,10 @@ import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
 
-from .base import ForcingFunction
+from .base import BackendAwareForcing
 
 
-class InterpolatedForcing(ForcingFunction):
+class InterpolatedForcing(BackendAwareForcing):
     """
     Forcing function that interpolates between discrete time points from a DataFrame.
 
@@ -43,6 +43,7 @@ class InterpolatedForcing(ForcingFunction):
             bounds_error: If True, raise error when extrapolating beyond data range
             fill_value: Value to use for extrapolation ('extrapolate' or a number)
         """
+        super().__init__()
         self.times = np.asarray(times)
         self.values = np.asarray(values)
         self.interpolation_method = interpolation_method
@@ -124,25 +125,30 @@ class InterpolatedForcing(ForcingFunction):
 
         return cls(times=data[time_key], values=data[value_key], **kwargs)
 
-    def create_function(self, backend: str = "scipy"):
-        """
-        Create the interpolation function for the specified backend.
-
-        Args:
-            backend: Backend to use ('scipy' or 'jax')
-
-        Returns:
-            Callable interpolation function
-        """
+    def _create_backend_function(self, backend: str):
+        """Create the interpolation function for the specified backend."""
         if backend == "scipy":
             return self._create_scipy_function()
         elif backend == "jax":
             return self._create_jax_function()
         else:
-            raise ValueError(f"Unknown backend: {backend}")
+            # For other backends, we could implement interpolation like this:
+            # elif backend == "tensorflow":
+            #     return self._create_tensorflow_function()
+            # elif backend == "pytorch":
+            #     return self._create_pytorch_function()
+            #
+            # For now, we only support scipy and jax for interpolation
+            raise ValueError(
+                f"Interpolation not yet supported for backend: {backend}. Supported: scipy, jax"
+            )
 
     def _create_scipy_function(self):
         """Create scipy-compatible interpolation function."""
+        from .unified import ScipyBackend
+
+        backend = ScipyBackend()
+
         # Create scipy interpolator
         interpolator = interp1d(
             self.times,
@@ -162,6 +168,9 @@ class InterpolatedForcing(ForcingFunction):
             Returns:
                 Interpolated value(s)
             """
+            # Convert input using backend
+            t = backend.asarray(t)
+
             # Handle scalar input
             if np.isscalar(t):
                 return float(interpolator(t))
@@ -169,18 +178,17 @@ class InterpolatedForcing(ForcingFunction):
             # Handle array input
             return interpolator(t)
 
-        return interpolation_func
+        return backend.compile_function(interpolation_func)
 
     def _create_jax_function(self):
         """Create JAX-compatible interpolation function."""
-        try:
-            import jax.numpy as jnp
-        except ImportError:
-            raise ImportError("JAX is required for JAX backend")
+        from .unified import JAXBackend
+
+        backend = JAXBackend()
 
         # Convert to JAX arrays
-        times_jax = jnp.array(self.times)
-        values_jax = jnp.array(self.values)
+        times_jax = backend.asarray(self.times)
+        values_jax = backend.asarray(self.values)
 
         def jax_interpolation_func(t):
             """
@@ -193,9 +201,9 @@ class InterpolatedForcing(ForcingFunction):
                 Interpolated value
             """
             # Use JAX's interp function for linear interpolation
-            return jnp.interp(t, times_jax, values_jax)
+            return backend.jnp.interp(t, times_jax, values_jax)
 
-        return jax_interpolation_func
+        return backend.compile_function(jax_interpolation_func)
 
     def get_switch_times(self, t_start: float, t_end: float) -> list[float]:
         """
@@ -252,7 +260,7 @@ class InterpolatedForcing(ForcingFunction):
             raise ImportError("matplotlib is required for plotting")
 
         if ax is None:
-            fig, ax = plt.subplots(figsize=(10, 6))
+            _, ax = plt.subplots(figsize=(10, 6))
 
         # Plot original data points
         if show_points:

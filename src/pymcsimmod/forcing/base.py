@@ -18,26 +18,38 @@ class ForcingFunction(ABC):
         pass
 
 
-class OnOffForcing(ForcingFunction):
+class BackendAwareForcing(ForcingFunction):
+    """Base class for forcing functions that are backend-aware with caching."""
+
+    def __init__(self):
+        self._cached_functions = {}
+
+    def create_function(self, backend: str = "scipy") -> Callable:
+        """Create and cache forcing function for specified backend."""
+        if backend not in self._cached_functions:
+            self._cached_functions[backend] = self._create_backend_function(backend)
+        return self._cached_functions[backend]
+
+    @abstractmethod
+    def _create_backend_function(self, backend: str) -> Callable:
+        """Create the backend-specific function implementation."""
+        pass
+
+
+class OnOffForcing(BackendAwareForcing):
     """On-off forcing function."""
 
     def __init__(self, t0: float, t1: float, s: float = 10.0):
+        super().__init__()
         self.t0 = t0
         self.t1 = t1
         self.s = s
 
-    def create_function(self, backend: str = "scipy") -> Callable:
+    def _create_backend_function(self, backend: str) -> Callable:
         """Create the on-off function for the specified backend."""
-        if backend == "scipy":
-            from .scipy_functions import create_onoff
+        from .unified import UnifiedForcingFactory
 
-            return create_onoff(self.t0, self.t1, self.s)
-        elif backend == "jax":
-            from .jax_functions import create_onoff
-
-            return create_onoff(self.t0, self.t1, self.s)
-        else:
-            raise ValueError(f"Unknown backend: {backend}")
+        return UnifiedForcingFactory.create_onoff(self.t0, self.t1, self.s, backend)
 
     def get_switch_times(self, t_start: float, t_end: float) -> list[float]:
         """Get switch times for this forcing function."""
@@ -49,27 +61,23 @@ class OnOffForcing(ForcingFunction):
         return times
 
 
-class PeriodicForcing(ForcingFunction):
+class PeriodicForcing(BackendAwareForcing):
     """Periodic dosing forcing function."""
 
     def __init__(self, t0: float, duration: float, period: float, s: float = 10.0):
+        super().__init__()
         self.t0 = t0
         self.duration = duration
         self.period = period
         self.s = s
 
-    def create_function(self, backend: str = "scipy") -> Callable:
+    def _create_backend_function(self, backend: str) -> Callable:
         """Create the periodic function for the specified backend."""
-        if backend == "scipy":
-            from .scipy_functions import create_perdose
+        from .unified import UnifiedForcingFactory
 
-            return create_perdose(self.t0, self.duration, self.period, self.s)
-        elif backend == "jax":
-            from .jax_functions import create_perdose
-
-            return create_perdose(self.t0, self.duration, self.period, self.s)
-        else:
-            raise ValueError(f"Unknown backend: {backend}")
+        return UnifiedForcingFactory.create_perdose(
+            self.t0, self.duration, self.period, self.s, backend
+        )
 
     def get_switch_times(self, t_start: float, t_end: float) -> list[float]:
         """Get switch times for periodic dosing."""
@@ -88,26 +96,20 @@ class PeriodicForcing(ForcingFunction):
         return times
 
 
-class MultiDoseForcing(ForcingFunction):
+class MultiDoseForcing(BackendAwareForcing):
     """Multiple discrete dose forcing function."""
 
     def __init__(self, t0_list: list[float], duration: float, s: float = 10.0):
+        super().__init__()
         self.t0_list = t0_list
         self.duration = duration
         self.s = s
 
-    def create_function(self, backend: str = "scipy") -> Callable:
+    def _create_backend_function(self, backend: str) -> Callable:
         """Create the multi-dose function for the specified backend."""
-        if backend == "scipy":
-            from .scipy_functions import create_ndoses
+        from .unified import UnifiedForcingFactory
 
-            return create_ndoses(self.t0_list, self.duration, self.s)
-        elif backend == "jax":
-            from .jax_functions import create_ndoses
-
-            return create_ndoses(self.t0_list, self.duration, self.s)
-        else:
-            raise ValueError(f"Unknown backend: {backend}")
+        return UnifiedForcingFactory.create_ndoses(self.t0_list, self.duration, self.s, backend)
 
     def get_switch_times(self, t_start: float, t_end: float) -> list[float]:
         """Get switch times for multiple doses."""
@@ -122,4 +124,47 @@ class MultiDoseForcing(ForcingFunction):
         return times
 
 
-__all__ = ["ForcingFunction", "MultiDoseForcing", "OnOffForcing", "PeriodicForcing"]
+def create_forcing_function(forcing_type: str, **kwargs) -> ForcingFunction:
+    """
+    Factory function to create forcing functions.
+
+    Args:
+        forcing_type: Type of forcing function ('onoff', 'perdose', 'ndoses', 'interpolated', etc.)
+        **kwargs: Arguments specific to the forcing function type
+
+    Returns:
+        ForcingFunction instance
+
+    Examples:
+        # Create on-off forcing
+        forcing = create_forcing_function('onoff', t0=1.0, t1=5.0, s=10.0)
+
+        # Create periodic dosing
+        forcing = create_forcing_function('perdose', t0=0.0, duration=1.0, period=24.0)
+
+        # Create interpolated from arrays
+        forcing = create_forcing_function('interpolated', times=[0, 1, 2], values=[10, 20, 30])
+    """
+    if forcing_type == "onoff":
+        return OnOffForcing(**kwargs)
+    elif forcing_type == "perdose" or forcing_type == "periodic":
+        return PeriodicForcing(**kwargs)
+    elif forcing_type == "ndoses" or forcing_type == "multidose":
+        return MultiDoseForcing(**kwargs)
+    elif forcing_type == "interpolated":
+        from .interpolated import InterpolatedForcing
+
+        return InterpolatedForcing(**kwargs)
+    else:
+        available_types = ["onoff", "perdose", "periodic", "ndoses", "multidose", "interpolated"]
+        raise ValueError(f"Unknown forcing type: {forcing_type}. Available: {available_types}")
+
+
+__all__ = [
+    "BackendAwareForcing",
+    "ForcingFunction",
+    "MultiDoseForcing",
+    "OnOffForcing",
+    "PeriodicForcing",
+    "create_forcing_function",
+]
