@@ -11,6 +11,7 @@
 # STATE VARIABLES for the model (for which ODEs are provided).
 
 States = {
+    A_in,   # Amount being dosed in (mg).
     A0,     # Amount in exposure compartment (mg).
     A1,     # Amount in central compartment (mg).
     A2,     # Amount cleared (mg).
@@ -77,6 +78,7 @@ IVDur = 0.01;       # Duration of IV dosing (h)
 
 Initialize {
     # Assign an initial value for each state variable.
+    A_in = 0;
     A0 = A0_init;
     A1 = A1_init;
     A2 = A2_init;
@@ -96,10 +98,12 @@ Dynamics {
     Vd = Vdc * M;  # Volume of distribution (L).
     C = A1 / Vd;          # Concentration in central compartment (mg/L).
     ODose = OralDose / OralDur; # Rate of dosing
+    oral_rate = OralExp*ODose;
     
 
     # Time rate of change (ODE) for each state variable.
-    dt(A0) = OralExp*ODose - k01 * A0;
+    dt(A_in) = oral_rate;
+    dt(A0) = oral_rate - k01 * A0;
     dt(A1) = IVExp*ODose + k01 * A0 - k12 * A1;
     dt(A2) = k12 * A1;
     dt(AUC) = C;
