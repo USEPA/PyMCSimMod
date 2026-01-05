@@ -1,0 +1,81 @@
+#-------------------------------------------------------------------------------
+# pred_prey.model
+#
+# A Lotka-Volterra predator-prey model.
+#
+# Author: Dustin Kapraun, U.S. EPA, June 2019
+#-------------------------------------------------------------------------------
+
+
+#-------------------------------------------------------------------------------
+# STATE VARIABLES for the model (for which ODEs are provided).
+
+States = {
+    x,        # Number of rabbits (1000s).
+    y,        # Number of foxes (1000s).
+};
+
+# End of STATE VARIABLES.
+#-------------------------------------------------------------------------------
+
+
+#-------------------------------------------------------------------------------
+# OUTPUT VARIABLES for the model (which can be obtained at any point in time
+# as analytic functions of state variables, input variables, and parameters).
+
+Outputs = {};
+
+# End of OUTPUT VARIABLES.
+#-------------------------------------------------------------------------------
+
+
+#-------------------------------------------------------------------------------
+# INPUT VARIABLES for the model (which are independent of other variables, and
+# which may vary in time).
+
+Inputs = {};
+
+# End of INPUT VARIABLES.
+#-------------------------------------------------------------------------------
+
+
+#-------------------------------------------------------------------------------
+# PARAMETERS for the model (which are independent of time).
+
+# Model parameters.
+alpha = 0.67;   # Birth rate of rabbits (1/d).
+beta = 1.33;    # Death rate of rabbits (1/d per 1000 foxes).
+gamma = 1.00;   # Birth rate of foxes (1/d per 1000 rabbits).
+delta = 1.00;   # Death rate of foxes (1/d).
+
+# End of PARAMETERS.
+#-------------------------------------------------------------------------------
+
+
+#-------------------------------------------------------------------------------
+# MODEL INITIALIZATION section.
+
+Initialize {
+    # Assign an initial value for each state variable.
+    x = 1.00;     # Initial number of rabbits (1000s).
+    y = 0.75;     # Initial number of foxes (1000s).
+}
+
+# End of MODEL INITIALIZATION.
+#-------------------------------------------------------------------------------
+
+
+#-------------------------------------------------------------------------------
+# DYNAMICS section.
+
+Dynamics {
+    # Time rate of change (ODE) for each state variable.
+    dt(x) = alpha * x - beta * x * y;
+    dt(y) = gamma * x * y - delta * y;
+}
+
+# End of DYNAMICS.
+#-------------------------------------------------------------------------------
+
+
+End.

@@ -64,7 +64,7 @@ class Number(BaseModel):
 
 
 class MathematicalFunction(BaseModel):
-    func: Literal["log", "log10", "sqrt", "pow", "exp"]
+    func: Literal["log", "log10", "sqrt", "pow", "exp", "fabs"]
     args: list[Expression]
 
     def evaluate(self, context, approach):
@@ -79,6 +79,8 @@ class MathematicalFunction(BaseModel):
             return math.pow(*args)
         if self.func == "exp":
             return math.exp(*args)
+        if self.func == "fabs":
+            return math.fabs(*args)
 
     def to_mod(self) -> str:
         return f"""{self.func}({", ".join(arg.to_mod() for arg in self.args)})"""
@@ -260,6 +262,25 @@ class InitializeSection(BaseModel):
     type: Literal["Initialize"] = "Initialize"
     statements: list[Statement]
 
+    def get_Y0(self, context, approach):
+        """
+        Evaluate initial conditions using the given context and approach.
+
+        Args:
+            context: Dictionary of parameter values for evaluation.
+            approach: Approach enum (JAX or SCIPY) for evaluation.
+
+        Returns:
+            Dictionary of evaluated initial conditions.
+        """
+        Y0 = {}
+        for statement in self.statements:
+            var_name = (
+                statement.lhs.eval() if hasattr(statement.lhs, "eval") else statement.lhs.name
+            )
+            Y0[var_name] = statement.rhs.evaluate(context, approach)
+        return Y0
+
     def to_mod(self) -> str:
         return f"""Initialize {{\n{"\n".join(f"    {statement.to_mod()}" for statement in self.statements)}\n}}"""
 
@@ -331,7 +352,49 @@ class Model(BaseModel):
                 if isinstance(section, Statement):
                     params.update(section.to_dict())
             self._params = params
-            return self._params
+        return self._params
+
+    @property
+    def inputs(self) -> list[str]:
+        """
+        Extract inputs from the model.
+        Returns a list of input names.
+        """
+        if not hasattr(self, "_inputs"):
+            self._inputs = []  # Default to empty list
+            for section in self.sections:
+                if isinstance(section, InputsSection):
+                    self._inputs = [declaration.name for declaration in section.declarations]
+                    break
+        return self._inputs
+
+    @property
+    def states(self) -> list[str]:
+        """
+        Extract state variables from the model.
+        Returns a list of state variable names.
+        """
+        if not hasattr(self, "_states"):
+            self._states = []  # Default to empty list
+            for section in self.sections:
+                if isinstance(section, StatesSection):
+                    self._states = [declaration.name for declaration in section.declarations]
+                    break
+        return self._states
+
+    @property
+    def outputs(self) -> list[str]:
+        """
+        Extract outputs from the model.
+        Returns a list of output names.
+        """
+        if not hasattr(self, "_outputs"):
+            self._outputs = []  # Default to empty list
+            for section in self.sections:
+                if isinstance(section, OutputsSection):
+                    self._outputs = [declaration.name for declaration in section.declarations]
+                    break
+        return self._outputs
 
     @property
     def Y0(self) -> dict[str, float | int]:
@@ -381,3 +444,20 @@ class Model(BaseModel):
                             dynamics_calcs[variable] = statement.rhs
             self._dynamics_calcs = dynamics_calcs
         return self._dynamics_calcs
+
+    @property
+    def calc_outputs(self) -> dict[str, MathematicalExpression]:
+        """
+        Extract any calculations from the dynamics section from the model.
+        Returns a dictionary where keys are variable names and values are their dynamics calculations.
+        """
+        if not hasattr(self, "_calc_outputs"):
+            calc_outputs = {}
+            for section in self.sections:
+                if isinstance(section, CalcOutputsSection):
+                    for statement in section.statements:
+                        if isinstance(statement.lhs, Identifier):
+                            variable = statement.lhs.name
+                            calc_outputs[variable] = statement.rhs
+            self._calc_outputs = calc_outputs
+        return self._calc_outputs

@@ -1,0 +1,77 @@
+#-------------------------------------------------------------------------------
+# exponential.model
+#
+# A one-state exponential growth/decay model.
+#
+# Author: Dustin Kapraun, U.S. EPA, July 2019
+#-------------------------------------------------------------------------------
+
+
+#-------------------------------------------------------------------------------
+# STATE VARIABLES for the model (for which ODEs are provided).
+
+States = {
+    A,        # Amount of substance or number of individuals or items.
+};
+
+# End of STATE VARIABLES.
+#-------------------------------------------------------------------------------
+
+
+#-------------------------------------------------------------------------------
+# OUTPUT VARIABLES for the model (which can be obtained at any point in time
+# as analytic functions of state variables, input variables, and parameters).
+
+Outputs = {};
+
+# End of OUTPUT VARIABLES.
+#-------------------------------------------------------------------------------
+
+
+#-------------------------------------------------------------------------------
+# INPUT VARIABLES for the model (which are independent of other variables, and
+# which may vary in time).
+
+Inputs = {};
+
+# End of INPUT VARIABLES.
+#-------------------------------------------------------------------------------
+
+
+#-------------------------------------------------------------------------------
+# PARAMETERS for the model (which are independent of time).
+
+# Experimental parameters.
+A0 = 0;          # Initial amount or number.
+r = 0;           # Exponential rate of change (time^-1).
+
+# End of PARAMETERS.
+#-------------------------------------------------------------------------------
+
+
+#-------------------------------------------------------------------------------
+# MODEL INITIALIZATION section.
+
+Initialize {
+    # Assign an initial value for each state variable.
+    A = A0;
+}
+
+# End of MODEL INITIALIZATION.
+#-------------------------------------------------------------------------------
+
+
+#-------------------------------------------------------------------------------
+# DYNAMICS section.
+
+Dynamics {
+
+    # Time rate of change (ODE) for each state variable.
+    dt(A) = r * A;
+}
+
+# End of DYNAMICS.
+#-------------------------------------------------------------------------------
+
+
+End.
