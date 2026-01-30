@@ -7,59 +7,22 @@ from pymcsimmod.models.computed import ComputedModel
 from pymcsimmod.models.scipy_model import ScipyModel
 
 
-@pytest.fixture
-def simple_model_str():
-    """Simple test model string."""
-    return """
-    States = {
-        A
-    };
-
-    Inputs = {
-        dose
-    };
-
-    Outputs = {
-        A_out
-    };
-
-    # Parameters defined outside blocks with default values
-    ka = 1.0;
-    ke = 0.1;
-
-    Initialize {
-        A = 0.0;
-    }
-
-    Dynamics {
-        dt(A) = dose - ke * A;
-    }
-
-    CalcOutputs {
-        A_out = A;
-    }
-
-    End.
-    """
-
-
 class TestScipyModel:
     """Tests for the ScipyModel class."""
 
-    def test_model_runs_and_updates_comprehensive(self, simple_model_str):
+    def test_model_runs_and_updates_comprehensive(self, simple_scipy_model, standard_times):
         """Test comprehensive model running, updates, and ComputedModel interface."""
-        model = ScipyModel(simple_model_str)
-        times = np.linspace(0, 5, 10)
-
+        model = simple_scipy_model
+        
         # Set initial condition to make the model dynamic
         model.update_Y0(A=10.0)
 
         # Run initial model
-        sol = model.run_model(times)
+        sol = model.run_model(standard_times)
 
         # Test ComputedModel interface
-        assert sol.states.shape == (10, 1)
-        assert sol.times.shape == (10,)
+        assert sol.states.shape == (len(standard_times), 1)
+        assert sol.times.shape == (len(standard_times),)
         assert sol.var_names == ["A"]
 
         # Test indexing access
@@ -72,54 +35,19 @@ class TestScipyModel:
 
         # Update parameter and check new solution is different
         model.update_constants(ke=1.0)
-        sol2 = model.run_model(times)
+        sol2 = model.run_model(standard_times)
         assert not np.allclose(sol.states, sol2.states)
         assert model.parameters["ke"] == 1.0
 
         # Update Y0 again and check new solution is different
         model.update_Y0(A=1.0)
-        sol3 = model.run_model(times)
+        sol3 = model.run_model(standard_times)
         assert not np.allclose(sol2.states, sol3.states)
         assert model.Y0["A"] == 1.0
 
-    @pytest.fixture
-    def model_with_events_str(self):
-        """Model string with events for testing."""
-        return """
-        States = {
-            A
-        };
-
-        Inputs = {
-            dose
-        };
-
-        Outputs = {
-            A_out
-        };
-
-        # Parameters defined outside blocks with default values
-        ka = 1.0;
-        ke = 0.1;
-
-        Initialize {
-            A = 0.0;
-        }
-
-        Dynamics {
-            dt(A) = dose * ka - A * ke;
-        }
-
-        CalcOutputs {
-            A_out = A;
-        }
-
-        End.
-        """
-
-    def test_scipy_model_creation(self, simple_model_str):
+    def test_scipy_model_creation(self, simple_pk_model_str):
         """Test ScipyModel creation from string."""
-        model = ScipyModel(simple_model_str)
+        model = ScipyModel(simple_pk_model_str)
 
         assert hasattr(model, "state_names")
         assert hasattr(model, "parameters")
@@ -135,43 +63,39 @@ class TestScipyModel:
         assert hasattr(model, "state_names")
         assert hasattr(model, "parameters")
 
-    def test_run_model_basic(self, simple_model_str):
+    def test_run_model_basic(self, simple_scipy_model, standard_times):
         """Test basic model run without events."""
-        model = ScipyModel(simple_model_str)
-        times = np.linspace(0, 10, 101)
-
-        result = model.run_model(times)
+        result = simple_scipy_model.run_model(standard_times)
 
         assert isinstance(result, ComputedModel)
-        assert len(result.times) == len(times)
-        assert result.states.shape[0] == len(times)
-        assert result.states.shape[1] == len(model.state_names)
+        assert len(result.times) == len(standard_times)
+        assert result.states.shape[0] == len(standard_times)
+        assert result.states.shape[1] == len(simple_scipy_model.state_names)
 
-    def test_run_model_methods(self, simple_model_str):
+    def test_run_model_methods(self, simple_scipy_model, short_times):
         """Test run_model with different integration methods."""
-        model = ScipyModel(simple_model_str)
+        model = simple_scipy_model
         model.update_Y0(A=10.0)  # Set initial condition
-        times = np.linspace(0, 5, 11)
 
         # Test default method (BDF)
-        result_default = model.run_model(times)
+        result_default = model.run_model(short_times)
         assert isinstance(result_default, ComputedModel)
-        assert len(result_default.times) == len(times)
+        assert len(result_default.times) == len(short_times)
 
         # Test explicit BDF method
-        result_bdf = model.run_model(times, method="BDF")
+        result_bdf = model.run_model(short_times, method="BDF")
         assert isinstance(result_bdf, ComputedModel)
         np.testing.assert_allclose(result_default.states, result_bdf.states, rtol=1e-10)
 
         # Test RK45 method
-        result_rk45 = model.run_model(times, method="RK45")
+        result_rk45 = model.run_model(short_times, method="RK45")
         assert isinstance(result_rk45, ComputedModel)
-        assert len(result_rk45.times) == len(times)
+        assert len(result_rk45.times) == len(short_times)
 
         # Test LSODA method
-        result_lsoda = model.run_model(times, method="LSODA")
+        result_lsoda = model.run_model(short_times, method="LSODA")
         assert isinstance(result_lsoda, ComputedModel)
-        assert len(result_lsoda.times) == len(times)
+        assert len(result_lsoda.times) == len(short_times)
 
         # Results should be similar (within reasonable tolerance)
         # for this simple exponential decay problem
@@ -183,9 +107,9 @@ class TestScipyModel:
         assert abs(final_bdf - final_rk45) / final_bdf < 0.01
         assert abs(final_bdf - final_lsoda) / final_bdf < 0.01
 
-    def test_model_method(self, simple_model_str):
+    def test_model_method(self, simple_scipy_model):
         """Test the model method (ODE right-hand side)."""
-        model = ScipyModel(simple_model_str)
+        model = simple_scipy_model
 
         # Test model evaluation
         t = 1.0
@@ -197,9 +121,9 @@ class TestScipyModel:
         assert isinstance(dydt, list | np.ndarray)
         assert len(dydt) == len(model.state_names)
 
-    def test_onoff_forcing_function(self, simple_model_str):
+    def test_onoff_forcing_function(self, simple_pk_model_str):
         """Test OnOff forcing function."""
-        model = ScipyModel(simple_model_str)
+        model = ScipyModel(simple_pk_model_str)
 
         # Test OnOff function
         onoff_func = model.OnOff(0.0, 2.0, 10.0)
@@ -209,9 +133,9 @@ class TestScipyModel:
         assert onoff_func(1.0) > 0.9  # During
         assert onoff_func(3.0) < 0.1  # After end
 
-    def test_perdose_forcing_function(self, simple_model_str):
+    def test_perdose_forcing_function(self, simple_pk_model_str):
         """Test PerDose forcing function."""
-        model = ScipyModel(simple_model_str)
+        model = ScipyModel(simple_pk_model_str)
 
         # Test PerDose function
         perdose_func = model.PerDose(0.0, 1.0, 24.0, 10.0)
@@ -221,9 +145,9 @@ class TestScipyModel:
         assert perdose_func(12.0) < 0.1  # Between doses
         assert perdose_func(24.5) > 0.9  # During second dose
 
-    def test_ndoses_forcing_function(self, simple_model_str):
+    def test_ndoses_forcing_function(self, simple_pk_model_str):
         """Test NDoses forcing function."""
-        model = ScipyModel(simple_model_str)
+        model = ScipyModel(simple_pk_model_str)
 
         # Test NDoses function
         t0_list = [0.0, 24.0, 48.0]
@@ -234,9 +158,9 @@ class TestScipyModel:
         assert ndoses_func(12.0) < 0.1  # Between doses
         assert ndoses_func(24.5) > 0.9  # During second dose
 
-    def test_zerofunc_forcing_function(self, simple_model_str):
+    def test_zerofunc_forcing_function(self, simple_pk_model_str):
         """Test ZeroFunc forcing function."""
-        model = ScipyModel(simple_model_str)
+        model = ScipyModel(simple_pk_model_str)
 
         # Test ZeroFunc
         zero_func = model.ZeroFunc()
@@ -244,9 +168,9 @@ class TestScipyModel:
         assert zero_func(0.0) == 0.0
         assert zero_func(10.0) == 0.0
 
-    def test_add_discrete_event(self, simple_model_str):
+    def test_add_discrete_event(self, simple_pk_model_str):
         """Test adding discrete events with validation."""
-        model = ScipyModel(simple_model_str)
+        model = ScipyModel(simple_pk_model_str)
 
         # Add a discrete event using the add_event method with individual parameters
         model.add_event(time=5.0, state_var="A", value=10.0, method="add")
@@ -278,9 +202,9 @@ class TestScipyModel:
         model.add_event(time=0.0, state_var="A", value=1.0, method="replace")
         assert len(model.events) == 4
 
-    def test_run_model_with_events(self, simple_model_str):
+    def test_run_model_with_events(self, simple_pk_model_str):
         """Test running scipy model with discrete events, verifying clean time arrays."""
-        model = ScipyModel(simple_model_str)
+        model = ScipyModel(simple_pk_model_str)
 
         # Add a discrete event using the add_event method
         model.add_event(time=5.0, state_var="A", value=10.0, method="add")
@@ -319,9 +243,9 @@ class TestScipyModel:
         assert model.events[0].time == 5.0, "Event time should be 5.0"
         assert model.events[0].method == "add", "Event method should be add"
 
-    def test_event_time_array_modification(self, simple_model_str):
+    def test_event_time_array_modification(self, simple_pk_model_str):
         """Test that event times are automatically included in the time array."""
-        model = ScipyModel(simple_model_str)
+        model = ScipyModel(simple_pk_model_str)
 
         # Add events at times not in the original time array
         model.add_event(time=3.5, state_var="A", value=5.0, method="add")
@@ -347,9 +271,9 @@ class TestScipyModel:
         # Result should be sorted
         assert np.all(np.diff(result.times) > 0), "Result times should be sorted"
 
-    def test_duplicate_timestamp_elimination(self, simple_model_str):
+    def test_duplicate_timestamp_elimination(self, simple_pk_model_str):
         """Test that duplicate timestamps are eliminated when events occur at existing time points."""
-        model = ScipyModel(simple_model_str)
+        model = ScipyModel(simple_pk_model_str)
 
         # Add event at a time that will be in the original time array
         model.add_event(time=5.0, state_var="A", value=10.0, method="replace")
@@ -365,9 +289,9 @@ class TestScipyModel:
         event_occurrences = np.sum(np.isclose(result.times, 5.0, atol=1e-10))
         assert event_occurrences == 1, "Event time should occur exactly once"
 
-    def test_boundary_condition_events(self, simple_model_str):
+    def test_boundary_condition_events(self, simple_pk_model_str):
         """Test events at simulation start and end times."""
-        model = ScipyModel(simple_model_str)
+        model = ScipyModel(simple_pk_model_str)
 
         # Add events at boundaries
         model.add_event(time=0.0, state_var="A", value=5.0, method="replace")
@@ -383,9 +307,9 @@ class TestScipyModel:
         # Initial condition should be modified by start event
         assert abs(result.states[0, 0] - 5.0) < 1e-6, "Start event should modify initial condition"
 
-    def test_numerical_tolerance_handling(self, simple_model_str):
+    def test_numerical_tolerance_handling(self, simple_pk_model_str):
         """Test that events very close to existing time points are handled with proper tolerance."""
-        model = ScipyModel(simple_model_str)
+        model = ScipyModel(simple_pk_model_str)
 
         # Add event very close to an existing time point
         eps = 1e-12  # Machine epsilon scale
@@ -406,9 +330,9 @@ class TestScipyModel:
         near_event_times = np.where(np.abs(result.times - 5.0) < 1e-6)[0]
         assert len(near_event_times) >= 1, "Should find time point near event"
 
-    def test_multiple_simultaneous_events(self, simple_model_str):
+    def test_multiple_simultaneous_events(self, simple_pk_model_str):
         """Test multiple events at the same time or very close times."""
-        model = ScipyModel(simple_model_str)
+        model = ScipyModel(simple_pk_model_str)
 
         # Add multiple events at the same time
         model.add_event(time=5.0, state_var="A", value=10.0, method="add")
@@ -440,9 +364,9 @@ class TestScipyModel:
         # Times should be properly sorted
         assert np.all(np.diff(result.times) > 0), "Times should be monotonic"
 
-    def test_event_state_validation(self, simple_model_str):
+    def test_event_state_validation(self, simple_pk_model_str):
         """Test improved error handling for invalid state variables in events."""
-        model = ScipyModel(simple_model_str)
+        model = ScipyModel(simple_pk_model_str)
 
         # Test invalid state variable
         with pytest.raises(KeyError, match="State variable 'InvalidState' not found"):
@@ -456,9 +380,9 @@ class TestScipyModel:
         with pytest.raises(KeyError, match="State variable '' not found"):
             model.add_event(time=5.0, state_var="", value=10.0)
 
-    def test_clean_time_series_output(self, simple_model_str):
+    def test_clean_time_series_output(self, simple_pk_model_str):
         """Test that event handling produces clean, monotonic time series without artifacts."""
-        model = ScipyModel(simple_model_str)
+        model = ScipyModel(simple_pk_model_str)
 
         # Add multiple events at different times
         model.add_event(time=2.5, state_var="A", value=5.0, method="add")
@@ -485,9 +409,9 @@ class TestScipyModel:
                     f"Event time {event.time} should be in result"
                 )
 
-    def test_deSolve_compatibility(self, simple_model_str):
+    def test_deSolve_compatibility(self, simple_pk_model_str):
         """Test key compatibility features inspired by deSolve R package implementation."""
-        model = ScipyModel(simple_model_str)
+        model = ScipyModel(simple_pk_model_str)
 
         # Test automatic time array modification like deSolve
         model.add_event(time=3.14159, state_var="A", value=2.718, method="multiply")
@@ -519,9 +443,9 @@ class TestScipyModel:
         original_in_result = [t for t in times if t in result.times]
         assert len(original_in_result) == len(times), "Original time points should be preserved"
 
-    def test_context_utility_integration(self, simple_model_str):
+    def test_context_utility_integration(self, simple_pk_model_str):
         """Test that context utilities are properly integrated."""
-        model = ScipyModel(simple_model_str)
+        model = ScipyModel(simple_pk_model_str)
 
         # This should use context utilities internally
         # We test this indirectly by ensuring the model runs successfully
@@ -531,9 +455,9 @@ class TestScipyModel:
         assert isinstance(result, ComputedModel)
         assert len(result.times) == len(times)
 
-    def test_forcing_function_s_parameter(self, simple_model_str):
+    def test_forcing_function_s_parameter(self, simple_pk_model_str):
         """Test that the s parameter is properly passed through."""
-        model = ScipyModel(simple_model_str)
+        model = ScipyModel(simple_pk_model_str)
 
         # Test different s values
         onoff_smooth = model.OnOff(0.0, 2.0, 1.0)  # Low s = smooth
@@ -547,9 +471,9 @@ class TestScipyModel:
         # With low s, the transition should be more gradual
         assert abs(smooth_val - 0.5) < abs(sharp_val - 0.5)
 
-    def test_multiple_forcing_functions(self, simple_model_str):
+    def test_multiple_forcing_functions(self, simple_pk_model_str):
         """Test model with multiple forcing functions."""
-        model = ScipyModel(simple_model_str)
+        model = ScipyModel(simple_pk_model_str)
 
         # Set up multiple forcing functions
         model.forcing_functions["dose"] = model.OnOff(0.0, 2.0, 10.0)
@@ -561,9 +485,9 @@ class TestScipyModel:
         assert isinstance(result, ComputedModel)
         assert len(result.times) == len(times)
 
-    def test_parameter_modification(self, simple_model_str):
+    def test_parameter_modification(self, simple_pk_model_str):
         """Test modifying parameters after model creation."""
-        model = ScipyModel(simple_model_str)
+        model = ScipyModel(simple_pk_model_str)
 
         # Modify parameters
         original_ka = model.parameters.get("ka", 1.0)
@@ -576,9 +500,9 @@ class TestScipyModel:
         assert model.parameters["ka"] == 2.0
         assert model.parameters["ka"] != original_ka
 
-    def test_initial_conditions_modification(self, simple_model_str):
+    def test_initial_conditions_modification(self, simple_pk_model_str):
         """Test modifying initial conditions after model creation."""
-        model = ScipyModel(simple_model_str)
+        model = ScipyModel(simple_pk_model_str)
 
         # Modify initial conditions
         model.Y0["A"] = 5.0
@@ -590,9 +514,9 @@ class TestScipyModel:
         # Check that initial condition was applied
         assert abs(result.states[0, model.state_names.index("A")] - 5.0) < 1e-6
 
-    def test_output_calculation(self, simple_model_str):
+    def test_output_calculation(self, simple_pk_model_str):
         """Test that outputs are properly calculated."""
-        model = ScipyModel(simple_model_str)
+        model = ScipyModel(simple_pk_model_str)
 
         times = np.linspace(0, 5, 51)
         result = model.run_model(times)
@@ -1100,9 +1024,9 @@ class TestScipyModelErrorHandling:
         model = ScipyModel(incomplete_model)
         assert model is not None  # At least it should create
 
-    def test_invalid_event_time(self, simple_model_str):
+    def test_invalid_event_time(self, simple_pk_model_str):
         """Test handling of invalid event times."""
-        model = ScipyModel(simple_model_str)
+        model = ScipyModel(simple_pk_model_str)
 
         # Add event with negative time - this should be allowed (event before simulation)
         model.add_event(time=-1.0, state_var="A", value=10.0)
@@ -1112,9 +1036,9 @@ class TestScipyModelErrorHandling:
         result = model.run_model(times)
         assert isinstance(result, ComputedModel)
 
-    def test_invalid_state_in_event(self, simple_model_str):
+    def test_invalid_state_in_event(self, simple_pk_model_str):
         """Test handling of events referencing invalid states."""
-        model = ScipyModel(simple_model_str)
+        model = ScipyModel(simple_pk_model_str)
 
         # Add event for non-existent state - should raise KeyError at event addition
         with pytest.raises(KeyError, match="State variable 'NonExistentState' not found"):
@@ -1125,9 +1049,9 @@ class TestScipyModelErrorHandling:
         result = model.run_model(times)
         assert isinstance(result, ComputedModel)
 
-    def test_event_edge_cases(self, simple_model_str):
+    def test_event_edge_cases(self, simple_pk_model_str):
         """Test edge cases in event handling."""
-        model = ScipyModel(simple_model_str)
+        model = ScipyModel(simple_pk_model_str)
 
         # Test event with very large time value
         model.add_event(time=1e10, state_var="A", value=1.0)
@@ -1147,9 +1071,9 @@ class TestScipyModelErrorHandling:
 
         assert isinstance(result, ComputedModel)
 
-    def test_event_method_validation(self, simple_model_str):
+    def test_event_method_validation(self, simple_pk_model_str):
         """Test validation of event methods."""
-        model = ScipyModel(simple_model_str)
+        model = ScipyModel(simple_pk_model_str)
 
         # Valid methods should work
         valid_methods = ["add", "replace", "multiply"]

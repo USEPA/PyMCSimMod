@@ -28,49 +28,6 @@ class EqxModel(eqx.Module):
     output_names: tuple[str, ...] = eqx.field()
 
     @staticmethod
-    @jax.jit
-    def OnOff(t: float, t0: float, t1: float, s: float = 10.0) -> jnp.ndarray:
-        """JAX-compiled on-off forcing function."""
-        t = jnp.asarray(t)
-        t0 = jnp.asarray(t0)
-        t1 = jnp.asarray(t1)
-        return (jnp.tanh(s * (t - t0)) - jnp.tanh(s * (t - t1))) / 2
-
-    @staticmethod
-    def PerDose(
-        t0: float, duration: float, period: float, s: float = 10.0
-    ) -> Callable[[float], jnp.ndarray]:
-        """JAX-compiled periodic dosing function."""
-        t0 = float(t0)
-        duration = float(duration)
-        period = float(period)
-
-        @jax.jit
-        def func(t):
-            t = jnp.asarray(t)
-            n = jnp.floor((t - t0) / period)
-            start = t0 + n * period
-            stop = start + duration
-            return EqxModel.OnOff(t, start, stop, s)
-
-        return func
-
-    @staticmethod
-    def NDoses(
-        t0_list: Sequence[float], duration: float, s: float = 10.0
-    ) -> Callable[[float], jnp.ndarray]:
-        """JAX-compiled multiple dosing function."""
-        t0_arr = jnp.array(t0_list)
-        duration = float(duration)
-
-        @jax.jit
-        def func(t):
-            t = jnp.asarray(t)
-            return jnp.sum(EqxModel.OnOff(t, t0_arr, t0_arr + duration, s), axis=-1)
-
-        return func
-
-    @staticmethod
     def InterpolatedForcing(
         times: NumericArray, values: NumericArray, **kwargs: Any
     ) -> Callable[[float], jnp.ndarray]:
@@ -90,29 +47,10 @@ class EqxModel(eqx.Module):
         forcing = InterpolatedForcing(times, values, **kwargs)
         return forcing.create_function("jax")
 
-    @staticmethod
-    def ZeroFunc() -> Callable[[float], float]:
-        """JAX-compiled zero function."""
-
-        @jax.jit
-        def func(t):
-            return 0.0
-
-        return func
-
-    @staticmethod
-    def ConstFunc(value: float) -> Callable[[float], float]:
-        """JAX-compiled constant function."""
-        value = float(value)  # Ensure value is a float for JAX compatibility
-
-        @jax.jit
-        def func(t):
-            return value
-
-        return func
-
     def compile_forcing_functions(self) -> None:
-        """Convert all dict-based forcing functions to JIT-compiled callables."""
+        """Convert all dict-based forcing functions to JIT-compiled callables using unified backend."""
+        from ..forcing.unified import UnifiedForcingFactory
+        
         # Create a new dict to avoid mutating during iteration
         compiled_functions = {}
         for input_name, ff in self.forcing_functions.items():
@@ -123,10 +61,18 @@ class EqxModel(eqx.Module):
                 func_name = ff["function"]
                 args = ff.get("args", ())
                 kwargs = ff.get("kwargs", {})
-                func_factory = getattr(self, func_name, None)
-                if func_factory is None or not callable(func_factory):
-                    raise AttributeError(f"Forcing function '{func_name}' not found in EqxModel.")
-                compiled_functions[input_name] = func_factory(*args, **kwargs)
+                
+                # Handle InterpolatedForcing separately since it's not in unified yet
+                if func_name == "InterpolatedForcing":
+                    func_factory = getattr(self, func_name, None)
+                    if func_factory is None or not callable(func_factory):
+                        raise AttributeError(f"Forcing function '{func_name}' not found in EqxModel.")
+                    compiled_functions[input_name] = func_factory(*args, **kwargs)
+                else:
+                    # Use unified forcing function factory
+                    compiled_functions[input_name] = UnifiedForcingFactory.create_forcing_function(
+                        func_name, backend="jax", **kwargs
+                    )
             else:
                 # It's already a compiled function or other callable
                 compiled_functions[input_name] = ff

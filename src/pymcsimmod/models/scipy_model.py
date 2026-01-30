@@ -31,105 +31,6 @@ class ScipyModel(OdeModel):
         return Approach.SCIPY
 
     @staticmethod
-    def OnOff(t0: float, t1: float, s: float = 10.0) -> Callable[[float], float]:
-        """
-        On-off forcing function.
-
-        Args:
-            t0: time when function turns on
-            t1: time when function turns off
-            s: smoothing parameter (default: 10.0)
-
-        Returns:
-            Function that takes time t and returns on/off value between 0 and 1.
-        """
-
-        def func(t: float) -> float:
-            y = (np.tanh(s * (t - t0)) - np.tanh(s * (t - t1))) / 2
-            return y
-
-        return func
-
-    @staticmethod
-    def PerDose(
-        t0: float, duration: float, period: float, s: float = 10.0
-    ) -> Callable[[float], float]:
-        """
-        Returns a function of t for periodic dosing using OnOff, with parameters fixed.
-
-        Args:
-            t0: Time of first dose.
-            duration: Duration of each dose.
-            period: Period between doses.
-            s: smoothing parameter (default: 10.0)
-
-        Returns:
-            Function that takes time t and returns dose value.
-        """
-
-        def func(t: float) -> float:
-            if t < t0:
-                return 0.0
-            n = int((t - t0) // period)
-            start = t0 + n * period
-            stop = start + duration
-            return ScipyModel.OnOff(start, stop, s)(t)
-
-        return func
-
-    @staticmethod
-    def ZeroFunc() -> Callable[[float], float]:
-        """
-        Default static method for forcing functions: always returns zero for any t input.
-
-        Returns:
-            Function that always returns 0.0.
-        """
-
-        def func(t: float) -> float:
-            return 0.0
-
-        return func
-
-    @staticmethod
-    def ConstFunc(value: float) -> Callable[[float], float]:
-        """
-        Static method for constant forcing functions: always returns the specified value for any t input.
-
-        Args:
-            value: The constant value to return.
-
-        Returns:
-            Function that always returns the specified constant value.
-        """
-
-        def func(t: float) -> float:
-            return float(value)
-
-        return func
-
-    @staticmethod
-    def NDoses(
-        t0_list: Sequence[float], duration: float, s: float = 10.0
-    ) -> Callable[[float], float]:
-        """
-        Returns a function of t for multiple dosing using OnOff, with parameters fixed.
-
-        Args:
-            t0_list: List of dose start times.
-            duration: Duration of each dose.
-            s: smoothing parameter (default: 10.0)
-
-        Returns:
-            Function that takes time t and returns dose value.
-        """
-
-        def func(t: float) -> float:
-            return sum(ScipyModel.OnOff(t0, t0 + duration, s)(t) for t0 in t0_list)
-
-        return func
-
-    @staticmethod
     def InterpolatedForcing(
         times: NumericArray, values: NumericArray, **kwargs: Any
     ) -> Callable[[float], float]:
@@ -162,6 +63,8 @@ class ScipyModel(OdeModel):
         Returns:
             Dictionary containing all variables for expression evaluation.
         """
+        from ..forcing.unified import UnifiedForcingFactory
+        
         # Calculate forcing function values
         forcing_values = {}
         for input_name, ff in self.forcing_functions.items():
@@ -169,11 +72,20 @@ class ScipyModel(OdeModel):
                 func_name = ff["function"]
                 args = ff.get("args", ())
                 kwargs = ff.get("kwargs", {})
-                func_factory = getattr(self, func_name, None)
-                if func_factory is None or not callable(func_factory):
-                    raise AttributeError(f"Forcing function '{func_name}' not found in ScipyModel.")
-                func = func_factory(*args, **kwargs)
-                forcing_values[input_name] = func(t)
+                
+                # Handle InterpolatedForcing separately since it's not in unified yet
+                if func_name == "InterpolatedForcing":
+                    func_factory = getattr(self, func_name, None)
+                    if func_factory is None or not callable(func_factory):
+                        raise AttributeError(f"Forcing function '{func_name}' not found in ScipyModel.")
+                    func = func_factory(*args, **kwargs)
+                    forcing_values[input_name] = func(t)
+                else:
+                    # Use unified forcing function factory
+                    func = UnifiedForcingFactory.create_forcing_function(
+                        func_name, backend="scipy", **kwargs
+                    )
+                    forcing_values[input_name] = func(t)
             else:
                 # fallback for legacy or direct function (should not occur with new logic)
                 forcing_values[input_name] = ff(t)
@@ -403,11 +315,20 @@ class ScipyModel(OdeModel):
         for input_name, ff in self.forcing_functions.items():
             if isinstance(ff, dict) and "function" in ff:
                 func_name = ff["function"]
+                args = ff.get("args", ())
                 kwargs = ff.get("kwargs", {})
-                func_factory = getattr(self, func_name, None)
-                if func_factory is None or not callable(func_factory):
-                    raise AttributeError(f"Forcing function '{func_name}' not found in ScipyModel.")
-                input_functions[input_name] = func_factory(*ff.get("args", ()), **kwargs)
+                
+                # Handle InterpolatedForcing separately since it's not in unified yet
+                if func_name == "InterpolatedForcing":
+                    func_factory = getattr(self, func_name, None)
+                    if func_factory is None or not callable(func_factory):
+                        raise AttributeError(f"Forcing function '{func_name}' not found in ScipyModel.")
+                    input_functions[input_name] = func_factory(*args, **kwargs)
+                else:
+                    # Use unified forcing function factory
+                    input_functions[input_name] = UnifiedForcingFactory.create_forcing_function(
+                        func_name, backend="scipy", **kwargs
+                    )
             else:
                 input_functions[input_name] = ff  # already a callable
 

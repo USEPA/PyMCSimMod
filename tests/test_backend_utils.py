@@ -13,56 +13,48 @@ from pymcsimmod.utils.backends import (
 class TestDetectAvailableBackends:
     """Tests for backend detection functionality."""
 
-    def test_detect_available_backends_returns_dict(self):
+    def test_detect_available_backends_returns_dict(self, available_backends):
         """Test that detect_available_backends returns a dictionary."""
-        backends = detect_available_backends()
+        assert isinstance(available_backends, dict)
+        assert "scipy" in available_backends
+        assert "jax" in available_backends
+        assert isinstance(available_backends["scipy"], bool)
+        assert isinstance(available_backends["jax"], bool)
 
-        assert isinstance(backends, dict)
-        assert "scipy" in backends
-        assert "jax" in backends
-        assert isinstance(backends["scipy"], bool)
-        assert isinstance(backends["jax"], bool)
-
-    def test_scipy_backend_detection(self):
+    def test_scipy_backend_detection(self, has_scipy):
         """Test scipy backend detection."""
         import importlib.util
 
-        backends = detect_available_backends()
-
         # Scipy should generally be available in test environment
         scipy_available = importlib.util.find_spec("scipy.integrate") is not None
-        assert backends["scipy"] == scipy_available
+        assert has_scipy == scipy_available
 
-    def test_jax_backend_detection(self):
+    def test_jax_backend_detection(self, has_jax):
         """Test JAX backend detection."""
         import importlib.util
-
-        backends = detect_available_backends()
 
         # JAX availability depends on installation
         jax_modules = ["jax", "equinox", "diffrax"]
         jax_available = all(importlib.util.find_spec(module) is not None for module in jax_modules)
-        assert backends["jax"] == jax_available
+        assert has_jax == jax_available
 
 
 class TestValidateBackend:
     """Tests for backend validation functionality."""
 
-    def test_validate_scipy_backend(self):
+    def test_validate_scipy_backend(self, has_scipy):
         """Test validation of scipy backend."""
         # Should not raise if scipy is available
-        backends = detect_available_backends()
-        if backends["scipy"]:
+        if has_scipy:
             validate_backend("scipy")  # Should not raise
         else:
             with pytest.raises(ImportError, match="Scipy backend requires"):
                 validate_backend("scipy")
 
-    def test_validate_jax_backend(self):
+    def test_validate_jax_backend(self, has_jax):
         """Test validation of JAX backend."""
         # Should not raise if JAX is available
-        backends = detect_available_backends()
-        if backends["jax"]:
+        if has_jax:
             validate_backend("jax")  # Should not raise
         else:
             with pytest.raises(ImportError, match="JAX backend requires"):
@@ -140,60 +132,50 @@ class TestGetBackendCapabilities:
 class TestRecommendBackend:
     """Tests for backend recommendation functionality."""
 
-    def test_recommend_backend_no_requirements(self):
+    def test_recommend_backend_no_requirements(self, available_backends):
         """Test backend recommendation with no special requirements."""
-        backends = detect_available_backends()
-
         recommended = recommend_backend()
 
         # Should recommend an available backend
         assert recommended in ["scipy", "jax"]
-        assert backends[recommended] is True
+        assert available_backends[recommended] is True
 
-    def test_recommend_backend_needs_events(self):
+    def test_recommend_backend_needs_events(self, has_scipy):
         """Test backend recommendation when events are required."""
-        backends = detect_available_backends()
-
-        if backends["scipy"]:
+        if has_scipy:
             recommended = recommend_backend(needs_events=True)
             assert recommended == "scipy"
         else:
             with pytest.raises(RuntimeError, match="Discrete events require scipy"):
                 recommend_backend(needs_events=True)
 
-    def test_recommend_backend_needs_jit(self):
+    def test_recommend_backend_needs_jit(self, available_backends):
         """Test backend recommendation when JIT is preferred."""
-        backends = detect_available_backends()
-
-        if backends["jax"]:
+        if available_backends["jax"]:
             recommended = recommend_backend(needs_jit=True)
             assert recommended == "jax"
-        elif backends["scipy"]:
+        elif available_backends["scipy"]:
             recommended = recommend_backend(needs_jit=True)
             assert recommended == "scipy"  # Falls back to available backend
         else:
             with pytest.raises(RuntimeError, match="No supported backends"):
                 recommend_backend(needs_jit=True)
 
-    def test_recommend_backend_needs_autodiff(self):
+    def test_recommend_backend_needs_autodiff(self, available_backends):
         """Test backend recommendation when autodiff is needed."""
-        backends = detect_available_backends()
-
-        if backends["jax"]:
+        if available_backends["jax"]:
             recommended = recommend_backend(needs_autodiff=True)
             assert recommended == "jax"
-        elif backends["scipy"]:
+        elif available_backends["scipy"]:
             recommended = recommend_backend(needs_autodiff=True)
             assert recommended == "scipy"  # Falls back to available backend
         else:
             with pytest.raises(RuntimeError, match="No supported backends"):
                 recommend_backend(needs_autodiff=True)
 
-    def test_recommend_backend_conflicting_requirements(self):
+    def test_recommend_backend_conflicting_requirements(self, has_scipy):
         """Test backend recommendation with conflicting requirements."""
-        backends = detect_available_backends()
-
-        if backends["scipy"]:
+        if has_scipy:
             # Events are only supported by scipy, so should recommend scipy
             # even if JIT is requested
             recommended = recommend_backend(needs_events=True, needs_jit=True)
@@ -202,11 +184,9 @@ class TestRecommendBackend:
             with pytest.raises(RuntimeError, match="Discrete events require scipy"):
                 recommend_backend(needs_events=True, needs_jit=True)
 
-    def test_recommend_backend_all_requirements(self):
+    def test_recommend_backend_all_requirements(self, has_scipy):
         """Test backend recommendation with all requirements."""
-        backends = detect_available_backends()
-
-        if backends["scipy"]:
+        if has_scipy:
             # Events requirement should force scipy selection
             recommended = recommend_backend(needs_events=True, needs_jit=True, needs_autodiff=True)
             assert recommended == "scipy"
@@ -230,13 +210,10 @@ class TestRecommendBackend:
 class TestBackendUtilitiesIntegration:
     """Integration tests for backend utilities."""
 
-    def test_backend_workflow(self):
+    def test_backend_workflow(self, available_backends):
         """Test typical backend selection workflow."""
-        # 1. Detect available backends
-        available = detect_available_backends()
-
-        # 2. Get recommendations based on requirements
-        if available["scipy"]:
+        # 1. Get recommendations based on requirements
+        if available_backends["scipy"]:
             # Test scipy path
             recommended = recommend_backend(needs_events=True)
             assert recommended == "scipy"
@@ -248,7 +225,7 @@ class TestBackendUtilitiesIntegration:
             capabilities = get_backend_capabilities(recommended)
             assert capabilities["discrete_events"] is True
 
-        if available["jax"]:
+        if available_backends["jax"]:
             # Test JAX path
             recommended = recommend_backend(needs_jit=True)
             if recommended == "jax":  # Might fall back to scipy
@@ -259,48 +236,28 @@ class TestBackendUtilitiesIntegration:
                 capabilities = get_backend_capabilities(recommended)
                 assert capabilities["jit_compilation"] is True
 
-    def test_backend_selection_with_model_creation(self):
+    def test_backend_selection_with_model_creation(self, minimal_model_str, available_backends):
         """Test backend utilities with actual model creation."""
-        available = detect_available_backends()
-
-        model_str = """
-        States = {
-            A
-        };
-
-        Initialize {
-            A = 1.0;
-        }
-
-        Dynamics {
-            dt(A) = -0.1 * A;
-        }
-
-        End.
-        """
-
         # Test scipy backend if available
-        if available["scipy"]:
+        if available_backends["scipy"]:
             validate_backend("scipy")
             from pymcsimmod.models.scipy_model import ScipyModel
 
-            model = ScipyModel(model_str)
+            model = ScipyModel(minimal_model_str)
             assert model is not None
 
         # Test JAX backend if available
-        if available["jax"]:
+        if available_backends["jax"]:
             validate_backend("jax")
             from pymcsimmod.models.jax_model import JaxModel
 
-            model = JaxModel(model_str)
+            model = JaxModel(minimal_model_str)
             assert model is not None
 
-    def test_capabilities_match_actual_functionality(self):
+    def test_capabilities_match_actual_functionality(self, minimal_model_str, available_backends):
         """Test that reported capabilities match actual functionality."""
-        available = detect_available_backends()
-
         # Test scipy capabilities
-        if available["scipy"]:
+        if available_backends["scipy"]:
             capabilities = get_backend_capabilities("scipy")
 
             # Scipy should support events
@@ -309,19 +266,12 @@ class TestBackendUtilitiesIntegration:
             # Should be able to create scipy model with events
             from pymcsimmod.models.scipy_model import ScipyModel
 
-            model_str = """
-            States = { A };
-            Initialize { A = 1.0; }
-            Dynamics { dt(A) = -0.1 * A; }
-            End.
-            """
-
-            model = ScipyModel(model_str)
+            model = ScipyModel(minimal_model_str)
             # Should be able to add events
             model.add_event(time=5.0, state_var="A", value=10.0)  # Should not raise
 
         # Test JAX capabilities
-        if available["jax"]:
+        if available_backends["jax"]:
             capabilities = get_backend_capabilities("jax")
 
             # JAX should not support discrete events
@@ -330,14 +280,7 @@ class TestBackendUtilitiesIntegration:
             # Should raise error when trying to use events with JAX
             from pymcsimmod.models.jax_model import JaxModel
 
-            model_str = """
-            States = { A };
-            Initialize { A = 1.0; }
-            Dynamics { dt(A) = -0.1 * A; }
-            End.
-            """
-
-            model = JaxModel(model_str)
+            model = JaxModel(minimal_model_str)
             # JAX models can add events but running with events should fail
             model.add_event(time=5.0, state_var="A", value=10.0)
 

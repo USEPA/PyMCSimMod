@@ -32,27 +32,27 @@ class ForcingBackend(ABC):
     @abstractmethod
     def tanh(self, x):
         """Backend-specific tanh implementation."""
-        pass
+        pass  # pragma: no cover
 
     @abstractmethod
     def floor(self, x):
         """Backend-specific floor implementation."""
-        pass
+        pass  # pragma: no cover
 
     @abstractmethod
     def sum(self, x, axis=None):
         """Backend-specific sum implementation."""
-        pass
+        pass  # pragma: no cover
 
     @abstractmethod
     def asarray(self, x):
         """Backend-specific array conversion."""
-        pass
+        pass  # pragma: no cover
 
     @abstractmethod
     def compile_function(self, func):
         """Backend-specific function compilation (e.g., jit)."""
-        pass
+        pass  # pragma: no cover
 
 
 class ScipyBackend(ForcingBackend):
@@ -104,7 +104,7 @@ class JAXBackend(ForcingBackend):
         return self.jax.jit(func)
 
 
-class TensorFlowBackend(ForcingBackend):
+class TensorFlowBackend(ForcingBackend):  # pragma: no cover
     """TensorFlow backend implementation (future extension)."""
 
     def __init__(self):
@@ -131,7 +131,7 @@ class TensorFlowBackend(ForcingBackend):
         return self.tf.function(func)
 
 
-class PyTorchBackend(ForcingBackend):
+class PyTorchBackend(ForcingBackend):  # pragma: no cover
     """PyTorch backend implementation (future extension)."""
 
     def __init__(self):
@@ -218,12 +218,12 @@ class UnifiedForcingFactory:
         t0_arr = backend_impl.asarray(t0_list)
         duration = float(duration)
 
-        def ndoses_func(t):
-            t = backend_impl.asarray(t)
-            t1_arr = t0_arr + duration
-
-            # Handle broadcasting correctly - expand dimensions for proper operation
-            if backend == "jax":
+        if backend == "jax":
+            # JAX-specific implementation with proper broadcasting
+            def ndoses_func(t):
+                t = backend_impl.asarray(t)
+                t1_arr = t0_arr + duration
+                
                 # For JAX, use broadcasting with expanded dimensions
                 t_expanded = t[..., None]  # Shape: (N, 1)
                 t0_expanded = t0_arr[None, :]  # Shape: (1, M)
@@ -234,7 +234,12 @@ class UnifiedForcingFactory:
                     - backend_impl.tanh(s * (t_expanded - t1_expanded))
                 ) / 2
                 return backend_impl.sum(dose_values, axis=-1)
-            else:
+        else:
+            # Scipy/NumPy implementation with scalar/array handling
+            def ndoses_func(t):
+                t = backend_impl.asarray(t)
+                t1_arr = t0_arr + duration
+
                 # For scipy/numpy, handle scalar and array inputs
                 if backend_impl.asarray(t).ndim == 0:
                     # Scalar input
@@ -275,6 +280,59 @@ class UnifiedForcingFactory:
             return float(val)
 
         return backend_impl.compile_function(constant_func)
+
+    @classmethod
+    def create_forcing_function(cls, func_name: str, backend: str = "scipy", **kwargs):
+        """
+        Create a forcing function by name with the specified backend.
+        
+        Args:
+            func_name: Name of the forcing function ('OnOff', 'PerDose', 'NDoses', etc.)
+            backend: Backend to use ('scipy', 'jax', etc.)
+            **kwargs: Parameters for the forcing function
+            
+        Returns:
+            Compiled forcing function for the specified backend
+            
+        Raises:
+            ValueError: If func_name is unknown or required parameters are missing
+        """
+        if func_name == "OnOff":
+            t0 = kwargs.get("t0")
+            t1 = kwargs.get("t1")
+            s = kwargs.get("s", 10.0)
+            if t0 is None or t1 is None:
+                raise ValueError(f"OnOff forcing function requires 't0' and 't1' parameters")
+            return cls.create_onoff(t0, t1, s, backend)
+            
+        elif func_name == "PerDose":
+            t0 = kwargs.get("t0")
+            duration = kwargs.get("duration")
+            period = kwargs.get("period")
+            s = kwargs.get("s", 10.0)
+            if any(param is None for param in [t0, duration, period]):
+                raise ValueError(f"PerDose forcing function requires 't0', 'duration', and 'period' parameters")
+            return cls.create_perdose(t0, duration, period, s, backend)
+            
+        elif func_name == "NDoses":
+            t0_list = kwargs.get("t0_list")
+            duration = kwargs.get("duration")
+            s = kwargs.get("s", 10.0)
+            if t0_list is None or duration is None:
+                raise ValueError(f"NDoses forcing function requires 't0_list' and 'duration' parameters")
+            return cls.create_ndoses(t0_list, duration, s, backend)
+            
+        elif func_name == "ZeroFunc":
+            return cls.create_zerofunc(backend)
+            
+        elif func_name == "ConstFunc":
+            value = kwargs.get("value")
+            if value is None:
+                raise ValueError(f"ConstFunc forcing function requires 'value' parameter")
+            return cls.create_constantfunc(value, backend)
+            
+        else:
+            raise ValueError(f"Unknown forcing function type: '{func_name}'. Available: OnOff, PerDose, NDoses, ZeroFunc, ConstFunc")
 
     @classmethod
     def _get_backend(cls, backend: str) -> ForcingBackend:
