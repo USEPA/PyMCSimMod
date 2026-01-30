@@ -6,6 +6,8 @@ from typing import ClassVar
 
 import numpy as np
 
+from ..config import BackendType
+
 
 def _check_backend_availability(module_name: str, backend_name: str, install_command: str):
     """
@@ -165,20 +167,20 @@ class PyTorchBackend(ForcingBackend):  # pragma: no cover
 class UnifiedForcingFactory:
     """Factory for creating forcing functions with different backends."""
 
-    _backends: ClassVar[dict[str, type[ForcingBackend]]] = {
-        "scipy": ScipyBackend,
-        "jax": JAXBackend,
-        "tensorflow": TensorFlowBackend,
-        "pytorch": PyTorchBackend,
+    _backends: ClassVar[dict[BackendType, type[ForcingBackend]]] = {
+        BackendType.SCIPY: ScipyBackend,
+        BackendType.JAX: JAXBackend,
+        BackendType.TENSORFLOW: TensorFlowBackend,
+        BackendType.PYTORCH: PyTorchBackend,
     }
 
     @classmethod
-    def register_backend(cls, name: str, backend_class: type[ForcingBackend]):
+    def register_backend(cls, name: BackendType, backend_class: type[ForcingBackend]):
         """Register a new backend."""
         cls._backends[name] = backend_class
 
     @classmethod
-    def create_onoff(cls, t0: float, t1: float, s: float = 10.0, backend: str = "scipy"):
+    def create_onoff(cls, t0: float, t1: float, s: float = 10.0, backend: BackendType = BackendType.SCIPY):
         """Create an on-off forcing function for specified backend."""
         backend_impl = cls._get_backend(backend)
 
@@ -192,7 +194,7 @@ class UnifiedForcingFactory:
 
     @classmethod
     def create_perdose(
-        cls, t0: float, duration: float, period: float, s: float = 10.0, backend: str = "scipy"
+        cls, t0: float, duration: float, period: float, s: float = 10.0, backend: BackendType = BackendType.SCIPY
     ):
         """Create a periodic dosing forcing function for specified backend."""
         backend_impl = cls._get_backend(backend)
@@ -211,14 +213,14 @@ class UnifiedForcingFactory:
 
     @classmethod
     def create_ndoses(
-        cls, t0_list: list[float], duration: float, s: float = 10.0, backend: str = "scipy"
+        cls, t0_list: list[float], duration: float, s: float = 10.0, backend: BackendType = BackendType.SCIPY
     ):
         """Create a multiple discrete dose forcing function for specified backend."""
         backend_impl = cls._get_backend(backend)
         t0_arr = backend_impl.asarray(t0_list)
         duration = float(duration)
 
-        if backend == "jax":
+        if backend == BackendType.JAX:
             # JAX-specific implementation with proper broadcasting
             def ndoses_func(t):
                 t = backend_impl.asarray(t)
@@ -262,7 +264,7 @@ class UnifiedForcingFactory:
         return backend_impl.compile_function(ndoses_func)
 
     @classmethod
-    def create_zerofunc(cls, backend: str = "scipy"):
+    def create_zerofunc(cls, backend: BackendType = BackendType.SCIPY):
         """Create a zero forcing function for specified backend."""
         backend_impl = cls._get_backend(backend)
 
@@ -272,7 +274,7 @@ class UnifiedForcingFactory:
         return backend_impl.compile_function(zero_func)
 
     @classmethod
-    def create_constantfunc(cls, val: float, backend: str = "scipy"):
+    def create_constantfunc(cls, val: float, backend: BackendType = BackendType.SCIPY):
         """Create a constant forcing function for specified backend."""
         backend_impl = cls._get_backend(backend)
 
@@ -284,7 +286,7 @@ class UnifiedForcingFactory:
     @classmethod
     def create_interpolated(
         cls,
-        backend: str = "scipy",
+        backend: BackendType = BackendType.SCIPY,
         dataframe=None,
         data_dict=None,
         time_col: str = "time",
@@ -343,7 +345,7 @@ class UnifiedForcingFactory:
         return forcing.create_function(backend)
 
     @classmethod
-    def create_forcing_function(cls, func_name: str, backend: str = "scipy", **kwargs):
+    def create_forcing_function(cls, func_name: str, backend: BackendType = BackendType.SCIPY, **kwargs):
         """
         Create a forcing function by name with the specified backend.
         
@@ -400,37 +402,38 @@ class UnifiedForcingFactory:
             raise ValueError(f"Unknown forcing function type: '{func_name}'. Available: OnOff, PerDose, NDoses, ZeroFunc, ConstFunc, InterpolatedForcing")
 
     @classmethod
-    def _get_backend(cls, backend: str) -> ForcingBackend:
+    def _get_backend(cls, backend: BackendType) -> ForcingBackend:
         """Get backend implementation instance."""
         if backend not in cls._backends:
-            raise ValueError(f"Unknown backend: {backend}. Available: {list(cls._backends.keys())}")
+            available = [b.value for b in BackendType]
+            raise ValueError(f"Unknown backend: {backend}. Available: {available}")
         return cls._backends[backend]()
 
 
 # Convenience functions that maintain backward compatibility
-def create_onoff(t0: float, t1: float, s: float = 10.0, backend: str = "scipy"):
+def create_onoff(t0: float, t1: float, s: float = 10.0, backend: BackendType = BackendType.SCIPY):
     """Create an on-off forcing function."""
     return UnifiedForcingFactory.create_onoff(t0, t1, s, backend)
 
 
 def create_perdose(
-    t0: float, duration: float, period: float, s: float = 10.0, backend: str = "scipy"
+    t0: float, duration: float, period: float, s: float = 10.0, backend: BackendType = BackendType.SCIPY
 ):
     """Create a periodic dosing forcing function."""
     return UnifiedForcingFactory.create_perdose(t0, duration, period, s, backend)
 
 
-def create_ndoses(t0_list: list[float], duration: float, s: float = 10.0, backend: str = "scipy"):
+def create_ndoses(t0_list: list[float], duration: float, s: float = 10.0, backend: BackendType = BackendType.SCIPY):
     """Create a multiple discrete dose forcing function."""
     return UnifiedForcingFactory.create_ndoses(t0_list, duration, s, backend)
 
 
-def create_zerofunc(backend: str = "scipy"):
+def create_zerofunc(backend: BackendType = BackendType.SCIPY):
     """Create a zero forcing function."""
     return UnifiedForcingFactory.create_zerofunc(backend)
 
 
-def create_constantfunc(val: float, backend: str = "scipy"):
+def create_constantfunc(val: float, backend: BackendType = BackendType.SCIPY):
     """Create a constant forcing function."""
     return UnifiedForcingFactory.create_constantfunc(val, backend)
 

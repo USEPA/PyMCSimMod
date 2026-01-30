@@ -10,6 +10,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from ..config import BackendType
 from ..extra_typing import NumericArray
 from ..model import Approach
 from .base import OdeModel
@@ -26,6 +27,7 @@ class EqxModel(eqx.Module):
     model_tree: Any = eqx.field(static=True)
     state_names: tuple[str, ...] = eqx.field()
     output_names: tuple[str, ...] = eqx.field()
+    backend: BackendType = eqx.field(static=True, default=BackendType.JAX)
 
     def compile_forcing_functions(self) -> None:
         """Convert all dict-based forcing functions to JIT-compiled callables using unified backend."""
@@ -44,7 +46,7 @@ class EqxModel(eqx.Module):
                 
                 # Use unified forcing function factory for all forcing functions
                 compiled_functions[input_name] = UnifiedForcingFactory.create_forcing_function(
-                    func_name, backend="jax", **kwargs
+                    func_name, backend=self.backend, **kwargs
                 )
             else:
                 # It's already a compiled function or other callable
@@ -176,6 +178,8 @@ class EqxModel(eqx.Module):
 
 class JaxModel(OdeModel):
     """JAX-based ODE model implementation."""
+    
+    backend = BackendType.JAX
 
     def __init__(self, model: str | Path):
         """

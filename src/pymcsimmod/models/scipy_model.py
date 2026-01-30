@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 import scipy.integrate as sci
 
+from ..config import BackendType
 from ..extra_typing import NumericArray
 from ..model import Approach
 from ..utils.context import build_evaluation_context
@@ -16,6 +17,8 @@ from .computed import ComputedModel
 
 class ScipyModel(OdeModel):
     """ODE model implementation using scipy.integrate.solve_ivp."""
+    
+    backend = BackendType.SCIPY
 
     def __init__(self, model: str | Path):
         """
@@ -55,7 +58,7 @@ class ScipyModel(OdeModel):
                 
                 # Use unified forcing function factory for all forcing functions
                 func = UnifiedForcingFactory.create_forcing_function(
-                    func_name, backend="scipy", **kwargs
+                    func_name, backend=self.backend, **kwargs
                 )
                 forcing_values[input_name] = func(t)
             else:
@@ -292,7 +295,7 @@ class ScipyModel(OdeModel):
                 
                 # Use unified forcing function factory for all forcing functions
                 input_functions[input_name] = UnifiedForcingFactory.create_forcing_function(
-                    func_name, backend="scipy", **kwargs
+                    func_name, backend=self.backend, **kwargs
                 )
             else:
                 # Direct callable (already a function)

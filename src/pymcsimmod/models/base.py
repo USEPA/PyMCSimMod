@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal
 
+from ..config import BackendType
 from ..model import Approach, InitializeSection
 from ..parser import ModelParser
 from .computed import ComputedModel
@@ -13,6 +14,9 @@ from .events import DiscreteEvent
 
 class OdeModel(ABC):
     """Abstract base class for ODE models."""
+    
+    # Backend type - to be set by subclasses
+    backend: BackendType
 
     def __init__(self, model: str | Path):
         """
