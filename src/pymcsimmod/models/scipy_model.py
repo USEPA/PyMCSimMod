@@ -144,20 +144,52 @@ class ScipyModel(OdeModel):
 
         # Get all switch times (forcing functions + events)
         switch_times = self.extract_switch_times(self.forcing_functions, times[0], times[-1])
+        
         # If no events, use the original method
         if not self.events:
             t_span = np.array([times[0], times[-1]])
             all_times = np.unique(np.concatenate([np.asarray(times), np.asarray(switch_times)]))
             events = [self.make_event_switch(t) for t in switch_times]
-            sol = sci.solve_ivp(
-                fun=self.model,
-                t_span=t_span,
-                y0=y_init,
-                t_eval=all_times,
-                vectorized=use_vectorized,
-                events=events,
-                method=method,
-            )
+            
+            # Handle edge case where t_span has identical start and end times 
+            # Only use minimal solution if we're asking for initial conditions at t=0
+            if t_span[0] == t_span[1] and times[0] == 0.0:
+                # For t=0 only, just return initial conditions
+                class MockSolutionMinimal:
+                    def __init__(self, t, y_init):
+                        self.t = np.array([t])
+                        self.y = y_init.reshape(-1, 1)  # Shape: (n_states, 1)
+                
+                sol = MockSolutionMinimal(times[0], y_init)
+            elif t_span[0] == t_span[1]:
+                # For single time point not at 0, integrate from 0 to that point
+                t_span_corrected = [0.0, times[0]] if times[0] > 0.0 else [times[0], 0.0]
+                sol = sci.solve_ivp(
+                    fun=self.model,
+                    t_span=t_span_corrected,
+                    y0=y_init,
+                    t_eval=times,
+                    vectorized=use_vectorized,
+                    method=method,
+                )
+                
+                # Ensure solution arrays are numpy arrays
+                sol.t = np.asarray(sol.t)
+                sol.y = np.asarray(sol.y)
+            else:
+                sol = sci.solve_ivp(
+                    fun=self.model,
+                    t_span=t_span,
+                    y0=y_init,
+                    t_eval=all_times,
+                    vectorized=use_vectorized,
+                    events=events,
+                    method=method,
+                )
+                
+                # Ensure solution arrays are numpy arrays (scipy.solve_ivp sometimes returns lists for single points)
+                sol.t = np.asarray(sol.t)
+                sol.y = np.asarray(sol.y)
         else:
             # Handle discrete events using deSolve-inspired approach
             from .event_utils import apply_events_at_time, check_events
@@ -256,19 +288,16 @@ class ScipyModel(OdeModel):
                 # Create a mock solution object compatible with the rest of the code
                 class MockSolution:
                     def __init__(self, t, y):
-                        self.t = t
-                        self.y = y
+                        self.t = np.asarray(t)  # Ensure t is always a numpy array
+                        self.y = np.asarray(y)  # Ensure y is always a numpy array
 
                 sol = MockSolution(combined_times, combined_states)
             else:
-                # Fallback if no segments
-                sol = sci.solve_ivp(
-                    fun=self.model,
-                    t_span=[times[0], times[-1]],
-                    y0=y_init,
-                    t_eval=times,
-                    vectorized=use_vectorized,
-                    method=method,
+                # This should not happen with proper segment creation
+                raise RuntimeError(
+                    "No segments could be integrated. This indicates an issue with event "
+                    "timing or segment creation logic. Please check your discrete events "
+                    "and evaluation time points."
                 )
 
         self.sol = sol  # Store the raw solution with ScipyModel

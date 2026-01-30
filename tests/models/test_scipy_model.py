@@ -752,14 +752,48 @@ class TestScipyModelErrorHandling:
         model = simple_scipy_model
         model.update_Y0(A=10.0)
         
-        # Single time point might not work properly - test if it raises error gracefully
-        try:
-            result = model.run_model([0.0])
-            assert isinstance(result, ComputedModel)
-            assert len(result.times) == 1
-        except (AttributeError, ValueError) as e:
-            # Single time point might not be supported
-            pytest.skip(f"Single time point not supported: {e}")
+        # Single time point should work after fixing data type consistency
+        result = model.run_model([0.0])
+        assert isinstance(result, ComputedModel)
+        assert len(result.times) == 1
+        assert result.times[0] == 0.0
+        assert result.states.shape == (1, 1)  # One time point, one state variable
+        assert result.states[0, 0] == 10.0  # Should match initial condition
+
+    def test_single_time_point_non_zero(self, simple_scipy_model):
+        """Test single time point at non-zero time (requires integration)."""
+        model = simple_scipy_model
+        model.update_Y0(A=10.0)
+        
+        # Single time point at t=1.0 should integrate from 0 to 1
+        result = model.run_model([1.0])
+        assert isinstance(result, ComputedModel)
+        assert len(result.times) == 1
+        assert result.times[0] == 1.0
+        assert result.states.shape == (1, 1)
+        
+        # Should be integrated value, not initial condition
+        expected_value = 10.0 * np.exp(-0.1 * 1.0)  # ke=0.1 from simple model
+        assert np.isclose(result.states[0, 0], expected_value, rtol=1e-3)
+        assert result.states[0, 0] != 10.0  # Should be different from initial condition
+
+    def test_single_time_point_negative(self, simple_scipy_model):
+        """Test single time point at negative time (backwards integration)."""
+        model = simple_scipy_model
+        model.update_Y0(A=10.0)
+        
+        # Single time point at t=-1.0 should integrate backwards
+        result = model.run_model([-1.0])
+        assert isinstance(result, ComputedModel)
+        assert len(result.times) == 1
+        assert result.times[0] == -1.0
+        assert result.states.shape == (1, 1)
+        
+        # For a simple decay model, backwards integration means we're asking
+        # "what was the state at t=-1 if it decayed to the initial condition at t=0"
+        # This should actually use the t_span_corrected logic
+        # Due to the model structure, we expect integration to work
+        assert result.states[0, 0] >= 10.0  # Should be at least the initial value or higher
 
     def test_negative_time_values(self, simple_scipy_model):
         """Test handling of negative time values.""" 
