@@ -61,7 +61,7 @@ class ScipyModel(OdeModel):
                     func_name, backend=self.backend, **kwargs
                 )
                 forcing_values[input_name] = func(t)
-            else:
+            else: # pragma: no cover
                 # Direct callable (fallback for compatibility)
                 forcing_values[input_name] = ff(t)
 
@@ -297,7 +297,7 @@ class ScipyModel(OdeModel):
                 input_functions[input_name] = UnifiedForcingFactory.create_forcing_function(
                     func_name, backend=self.backend, **kwargs
                 )
-            else:
+            else: # pragma: no cover
                 # Direct callable (already a function)
                 input_functions[input_name] = ff
 

@@ -291,3 +291,31 @@ def nonzero_initial_conditions() -> Dict[str, float]:
         "A1": 15.0,
         "AUC": 0.0,
     }
+
+
+# --- Forcing Function Data Fixtures ---
+@pytest.fixture
+def onoff_forcing_params() -> Dict[str, float]:
+    """Standard OnOff forcing function parameters."""
+    return {"t0": 1.0, "t1": 5.0, "s": 10.0}
+
+
+@pytest.fixture
+def perdose_forcing_params() -> Dict[str, float]:
+    """Standard PerDose forcing function parameters."""
+    return {"t0": 0.0, "duration": 1.0, "period": 24.0, "s": 10.0}
+
+
+@pytest.fixture
+def ndoses_forcing_params() -> Dict:
+    """Standard NDoses forcing function parameters."""
+    return {"t0_list": [1.0, 25.0, 49.0], "duration": 1.0, "s": 10.0}
+
+
+@pytest.fixture
+def interpolation_data() -> Dict[str, List[float]]:
+    """Standard interpolation data for forcing functions."""
+    return {
+        "times": [0.0, 2.0, 4.0, 6.0, 8.0, 10.0],
+        "values": [0.0, 5.0, 10.0, 8.0, 3.0, 0.0]
+    }
