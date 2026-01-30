@@ -13,6 +13,7 @@ from ..model import Approach
 from ..utils.context import build_evaluation_context
 from .base import OdeModel
 from .computed import ComputedModel
+from ..forcing.unified import UnifiedForcingFactory
 
 
 class ScipyModel(OdeModel):
@@ -46,7 +47,6 @@ class ScipyModel(OdeModel):
         Returns:
             Dictionary containing all variables for expression evaluation.
         """
-        from ..forcing.unified import UnifiedForcingFactory
         
         # Calculate forcing function values
         forcing_values = {}
