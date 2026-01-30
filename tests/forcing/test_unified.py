@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 
+from src.pymcsimmod.config import BackendType
 from src.pymcsimmod.forcing.unified import (
     JAXBackend, 
     ScipyBackend, 
@@ -21,7 +22,7 @@ class TestScipyForcingFunctions:
     def test_onoff_creation(self):
         """Test OnOff forcing function creation and behavior."""
         # Test creation
-        func = UnifiedForcingFactory.create_onoff(t0=1.0, t1=3.0, s=10.0, backend="scipy")
+        func = UnifiedForcingFactory.create_onoff(t0=1.0, t1=3.0, s=10.0, backend=BackendType.SCIPY)
         assert callable(func)
         
         # Test before activation
@@ -39,7 +40,7 @@ class TestScipyForcingFunctions:
     def test_onoff_via_unified_factory(self):
         """Test OnOff via create_forcing_function method."""
         func = UnifiedForcingFactory.create_forcing_function(
-            "OnOff", backend="scipy", t0=1.0, t1=3.0, s=10.0
+            "OnOff", backend=BackendType.SCIPY, t0=1.0, t1=3.0, s=10.0
         )
         assert callable(func)
         
@@ -51,7 +52,7 @@ class TestScipyForcingFunctions:
     def test_perdose_creation(self):
         """Test PerDose periodic behavior."""
         func = UnifiedForcingFactory.create_perdose(
-            t0=0.0, duration=1.0, period=4.0, s=10.0, backend="scipy"
+            t0=0.0, duration=1.0, period=4.0, s=10.0, backend=BackendType.SCIPY
         )
         assert callable(func)
         
@@ -67,7 +68,7 @@ class TestScipyForcingFunctions:
         """Test NDoses discrete dosing behavior."""
         t0_list = [1.0, 5.0, 10.0]
         func = UnifiedForcingFactory.create_ndoses(
-            t0_list=t0_list, duration=1.0, s=10.0, backend="scipy"
+            t0_list=t0_list, duration=1.0, s=10.0, backend=BackendType.SCIPY
         )
         assert callable(func)
         
@@ -82,7 +83,7 @@ class TestScipyForcingFunctions:
         
     def test_zerofunc_creation(self):
         """Test ZeroFunc always returns zero."""
-        func = UnifiedForcingFactory.create_zerofunc(backend="scipy")
+        func = UnifiedForcingFactory.create_zerofunc(backend=BackendType.SCIPY)
         assert callable(func)
         
         # Test various time points
@@ -93,7 +94,7 @@ class TestScipyForcingFunctions:
     def test_constantfunc_creation(self):
         """Test ConstFunc returns constant value."""
         val = 42.5
-        func = UnifiedForcingFactory.create_constantfunc(val=val, backend="scipy")
+        func = UnifiedForcingFactory.create_constantfunc(val=val, backend=BackendType.SCIPY)
         assert callable(func)
         
         # Test various time points
@@ -104,7 +105,7 @@ class TestScipyForcingFunctions:
     def test_ndoses_array_inputs(self):
         """Test NDoses with array inputs for scipy backend."""
         func = UnifiedForcingFactory.create_ndoses(
-            t0_list=[1.0, 5.0], duration=1.0, backend="scipy"
+            t0_list=[1.0, 5.0], duration=1.0, backend=BackendType.SCIPY
         )
         
         # Test with numpy array input to trigger array branch
@@ -118,7 +119,7 @@ class TestScipyForcingFunctions:
         
     def test_array_inputs(self):
         """Test with numpy array inputs."""
-        func = UnifiedForcingFactory.create_onoff(t0=1.0, t1=3.0, backend="scipy")
+        func = UnifiedForcingFactory.create_onoff(t0=1.0, t1=3.0, backend=BackendType.SCIPY)
         
         # Test with array input
         t_array = np.array([0.5, 2.0, 4.0])
@@ -133,36 +134,36 @@ class TestScipyForcingFunctions:
         """Test missing required parameters raise ValueError."""
         # Test OnOff missing parameters
         with pytest.raises(ValueError, match="OnOff forcing function requires"):
-            UnifiedForcingFactory.create_forcing_function("OnOff", backend="scipy")
+            UnifiedForcingFactory.create_forcing_function("OnOff", backend=BackendType.SCIPY)
             
         with pytest.raises(ValueError, match="OnOff forcing function requires"):
-            UnifiedForcingFactory.create_forcing_function("OnOff", backend="scipy", t0=1.0)
+            UnifiedForcingFactory.create_forcing_function("OnOff", backend=BackendType.SCIPY, t0=1.0)
             
         # Test PerDose missing parameters
         with pytest.raises(ValueError, match="PerDose forcing function requires"):
-            UnifiedForcingFactory.create_forcing_function("PerDose", backend="scipy", t0=1.0)
+            UnifiedForcingFactory.create_forcing_function("PerDose", backend=BackendType.SCIPY, t0=1.0)
             
         # Test NDoses missing parameters
         with pytest.raises(ValueError, match="NDoses forcing function requires"):
-            UnifiedForcingFactory.create_forcing_function("NDoses", backend="scipy")
+            UnifiedForcingFactory.create_forcing_function("NDoses", backend=BackendType.SCIPY)
             
         # Test ConstFunc missing parameters
         with pytest.raises(ValueError, match="ConstFunc forcing function requires"):
-            UnifiedForcingFactory.create_forcing_function("ConstFunc", backend="scipy")
+            UnifiedForcingFactory.create_forcing_function("ConstFunc", backend=BackendType.SCIPY)
             
     def test_unknown_function_type(self):
         """Test error handling for unknown function types."""
         with pytest.raises(ValueError, match="Unknown forcing function type"):
-            UnifiedForcingFactory.create_forcing_function("UnknownFunc", backend="scipy")
+            UnifiedForcingFactory.create_forcing_function("UnknownFunc", backend=BackendType.SCIPY)
             
     def test_convenience_functions(self):
         """Test convenience functions maintain compatibility."""
         # Test convenience functions exist and work
-        func_onoff = create_onoff(t0=1.0, t1=3.0, backend="scipy")
-        func_perdose = create_perdose(t0=0.0, duration=1.0, period=4.0, backend="scipy")
-        func_ndoses = create_ndoses(t0_list=[1.0, 5.0], duration=1.0, backend="scipy")
-        func_zero = create_zerofunc(backend="scipy")
-        func_const = create_constantfunc(val=10.0, backend="scipy")
+        func_onoff = create_onoff(t0=1.0, t1=3.0, backend=BackendType.SCIPY)
+        func_perdose = create_perdose(t0=0.0, duration=1.0, period=4.0, backend=BackendType.SCIPY)
+        func_ndoses = create_ndoses(t0_list=[1.0, 5.0], duration=1.0, backend=BackendType.SCIPY)
+        func_zero = create_zerofunc(backend=BackendType.SCIPY)
+        func_const = create_constantfunc(val=10.0, backend=BackendType.SCIPY)
         
         # All should be callable
         assert all(callable(f) for f in [func_onoff, func_perdose, func_ndoses, func_zero, func_const])
@@ -184,7 +185,7 @@ class TestScipyForcingFunctions:
     def test_parametrized_functions(self, func_type, params):
         """Parametrized test for multiple function types."""
         func = UnifiedForcingFactory.create_forcing_function(
-            func_type, backend="scipy", **params
+            func_type, backend=BackendType.SCIPY, **params
         )
         assert callable(func)
         
@@ -203,7 +204,7 @@ class TestJAXForcingFunctions:
         
     def test_jit_compilation(self, check_jax_available):
         """Test JAX functions are JIT compiled."""
-        func = UnifiedForcingFactory.create_onoff(t0=1.0, t1=3.0, backend="jax")
+        func = UnifiedForcingFactory.create_onoff(t0=1.0, t1=3.0, backend=BackendType.JAX)
         
         # Check that function is JIT compiled (should have specific JAX type)
         func_type_name = type(func).__name__
@@ -213,7 +214,7 @@ class TestJAXForcingFunctions:
         """Test with JAX arrays."""
         import jax.numpy as jnp
         
-        func = UnifiedForcingFactory.create_onoff(t0=1.0, t1=3.0, backend="jax")
+        func = UnifiedForcingFactory.create_onoff(t0=1.0, t1=3.0, backend=BackendType.JAX)
         
         # Test with JAX array
         t_jax = jnp.array([0.5, 2.0, 4.0])
@@ -227,7 +228,7 @@ class TestJAXForcingFunctions:
         """Test functions work in JIT contexts."""
         import jax
         
-        func = UnifiedForcingFactory.create_onoff(t0=1.0, t1=3.0, backend="jax")
+        func = UnifiedForcingFactory.create_onoff(t0=1.0, t1=3.0, backend=BackendType.JAX)
         
         # Should work within another JIT function
         @jax.jit
@@ -240,11 +241,11 @@ class TestJAXForcingFunctions:
     def test_all_function_types_jit_compiled(self, check_jax_available):
         """Test all function types are JIT compiled."""
         functions = [
-            UnifiedForcingFactory.create_onoff(t0=1.0, t1=3.0, backend="jax"),
-            UnifiedForcingFactory.create_perdose(t0=0.0, duration=1.0, period=4.0, backend="jax"),
-            UnifiedForcingFactory.create_ndoses(t0_list=[1.0, 5.0], duration=1.0, backend="jax"),
-            UnifiedForcingFactory.create_zerofunc(backend="jax"),
-            UnifiedForcingFactory.create_constantfunc(val=5.0, backend="jax"),
+            UnifiedForcingFactory.create_onoff(t0=1.0, t1=3.0, backend=BackendType.JAX),
+            UnifiedForcingFactory.create_perdose(t0=0.0, duration=1.0, period=4.0, backend=BackendType.JAX),
+            UnifiedForcingFactory.create_ndoses(t0_list=[1.0, 5.0], duration=1.0, backend=BackendType.JAX),
+            UnifiedForcingFactory.create_zerofunc(backend=BackendType.JAX),
+            UnifiedForcingFactory.create_constantfunc(val=5.0, backend=BackendType.JAX),
         ]
         
         for func in functions:
@@ -256,7 +257,7 @@ class TestJAXForcingFunctions:
         import jax.numpy as jnp
         
         func = UnifiedForcingFactory.create_ndoses(
-            t0_list=[1.0, 5.0, 10.0], duration=1.0, backend="jax"
+            t0_list=[1.0, 5.0, 10.0], duration=1.0, backend=BackendType.JAX
         )
         
         # Test with both scalar and array inputs
@@ -273,8 +274,8 @@ class TestJAXForcingFunctions:
         import jax.numpy as jnp
         
         # Create functions
-        scipy_func = UnifiedForcingFactory.create_onoff(t0=1.0, t1=3.0, backend="scipy")
-        jax_func = UnifiedForcingFactory.create_onoff(t0=1.0, t1=3.0, backend="jax")
+        scipy_func = UnifiedForcingFactory.create_onoff(t0=1.0, t1=3.0, backend=BackendType.SCIPY)
+        jax_func = UnifiedForcingFactory.create_onoff(t0=1.0, t1=3.0, backend=BackendType.JAX)
         
         # Large array for testing
         t_large = jnp.linspace(0, 10, 10000)
@@ -311,7 +312,7 @@ class TestJAXForcingFunctions:
     def test_jax_perdose_execution(self, check_jax_available):
         """Test JAX perdose function execution to cover floor method."""
         func = UnifiedForcingFactory.create_perdose(
-            t0=0.0, duration=1.0, period=4.0, backend="jax"
+            t0=0.0, duration=1.0, period=4.0, backend=BackendType.JAX
         )
         
         # Actually call the function to trigger floor method
@@ -368,7 +369,7 @@ class TestUnifiedForcingFactory:
     def test_cross_backend_consistency(self):
         """Test different backends produce consistent results."""
         # Create same function with different backends
-        scipy_func = UnifiedForcingFactory.create_onoff(t0=1.0, t1=3.0, backend="scipy")
+        scipy_func = UnifiedForcingFactory.create_onoff(t0=1.0, t1=3.0, backend=BackendType.SCIPY)
         
         # Test points
         test_points = [0.5, 2.0, 4.0]
@@ -377,7 +378,7 @@ class TestUnifiedForcingFactory:
         # If JAX is available, test consistency
         try:
             pytest.importorskip("jax")
-            jax_func = UnifiedForcingFactory.create_onoff(t0=1.0, t1=3.0, backend="jax")
+            jax_func = UnifiedForcingFactory.create_onoff(t0=1.0, t1=3.0, backend=BackendType.JAX)
             jax_results = [float(jax_func(t)) for t in test_points]
             
             # Results should be very close
@@ -419,14 +420,14 @@ class TestBackendSpecificFeatures:
     def test_error_handling_edge_cases(self):
         """Test edge cases like empty t0_list."""
         # Test NDoses with empty list
-        func = UnifiedForcingFactory.create_ndoses(t0_list=[], duration=1.0, backend="scipy")
+        func = UnifiedForcingFactory.create_ndoses(t0_list=[], duration=1.0, backend=BackendType.SCIPY)
         
         # Should not crash and return 0 (no doses)
         result = func(5.0)
         assert result == 0.0
         
         # Test with single dose
-        func_single = UnifiedForcingFactory.create_ndoses(t0_list=[2.0], duration=1.0, backend="scipy")
+        func_single = UnifiedForcingFactory.create_ndoses(t0_list=[2.0], duration=1.0, backend=BackendType.SCIPY)
         assert func_single(2.5) > 0.95  # During dose
         assert abs(func_single(5.0)) < 0.01  # After dose
         
@@ -435,8 +436,46 @@ class TestBackendSpecificFeatures:
            ***Will need to be updated if new backends are added.***"""
         # Test TensorFlow backend availability check
         with pytest.raises(ImportError, match="TensorFlow is required for TensorFlow backend"):
-            UnifiedForcingFactory.create_zerofunc(backend="tensorflow")
+            UnifiedForcingFactory.create_zerofunc(backend=BackendType.TENSORFLOW)
                 
         # Test PyTorch backend availability check
         with pytest.raises(ImportError, match="PyTorch is required for PyTorch backend"):
-            UnifiedForcingFactory.create_zerofunc(backend="pytorch")
+            UnifiedForcingFactory.create_zerofunc(backend=BackendType.PYTORCH)
+
+    def test_interpolated_forcing_via_create_forcing_function(self):
+        """Test InterpolatedForcing through create_forcing_function method."""
+        # Test with data_dict
+        data_dict = {'time': [0, 1, 2], 'value': [10, 20, 30]}
+        
+        func = UnifiedForcingFactory.create_forcing_function(
+            "InterpolatedForcing",
+            backend=BackendType.SCIPY,
+            data_dict=data_dict,
+            interpolation_method="linear"
+        )
+        
+        assert callable(func)
+        # Test interpolation works
+        assert func(0.5) == 15.0  # Linear interpolation between 10 and 20
+        assert func(1.5) == 25.0  # Linear interpolation between 20 and 30
+
+        # Test with DataFrame
+        import pandas as pd
+        df = pd.DataFrame({
+            'time': [0, 1, 2],
+            'dose': [5, 15, 25]
+        })
+        
+        func_df = UnifiedForcingFactory.create_forcing_function(
+            "InterpolatedForcing",
+            backend=BackendType.SCIPY,
+            dataframe=df,
+            time_col="time",
+            value_col="dose",
+            interpolation_method="linear"
+        )
+        
+        assert callable(func_df)
+        # Test interpolation works
+        assert func_df(0.5) == 10.0  # Linear interpolation between 5 and 15
+        assert func_df(1.5) == 20.0  # Linear interpolation between 15 and 25
