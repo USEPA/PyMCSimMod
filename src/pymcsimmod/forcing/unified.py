@@ -282,12 +282,73 @@ class UnifiedForcingFactory:
         return backend_impl.compile_function(constant_func)
 
     @classmethod
+    def create_interpolated(
+        cls,
+        backend: str = "scipy",
+        dataframe=None,
+        data_dict=None,
+        time_col: str = "time",
+        value_col: str = "value",
+        **kwargs
+    ):
+        """
+        Create an interpolated forcing function using existing class methods.
+        
+        Args:
+            backend: Backend to use ('scipy', 'jax', etc.)
+            dataframe: pandas DataFrame with time and value columns (deSolve style)
+            data_dict: Dictionary with time and value data
+            time_col: Name of time column (for DataFrame)
+            value_col: Name of value column (for DataFrame) 
+            **kwargs: Additional parameters for InterpolatedForcing
+            
+        Returns:
+            Compiled interpolated forcing function for the specified backend
+            
+        Raises:
+            ValueError: If neither dataframe nor data_dict is provided
+            ImportError: If required backend is not available
+            
+        Example:
+            # Using DataFrame (deSolve style)
+            func = UnifiedForcingFactory.create_interpolated(
+                backend="scipy",
+                dataframe=df,
+                time_col="time",
+                value_col="concentration",
+                interpolation_method="cubic"
+            )
+            
+            # Using dict
+            func = UnifiedForcingFactory.create_interpolated(
+                backend="jax",
+                data_dict={"time": [0,1,2], "value": [10,20,30]}
+            )
+        """
+        from ..forcing.interpolated import InterpolatedForcing
+        
+        if dataframe is not None:
+            # Use from_dataframe class method for deSolve compatibility
+            forcing = InterpolatedForcing.from_dataframe(
+                dataframe, time_col, value_col, **kwargs
+            )
+        elif data_dict is not None:
+            # Use from_dict class method
+            forcing = InterpolatedForcing.from_dict(data_dict, **kwargs)
+        else:
+            raise ValueError(
+                "Must provide either 'dataframe' or 'data_dict' parameter for interpolated forcing"
+            )
+            
+        return forcing.create_function(backend)
+
+    @classmethod
     def create_forcing_function(cls, func_name: str, backend: str = "scipy", **kwargs):
         """
         Create a forcing function by name with the specified backend.
         
         Args:
-            func_name: Name of the forcing function ('OnOff', 'PerDose', 'NDoses', etc.)
+            func_name: Name of the forcing function ('OnOff', 'PerDose', 'NDoses', 'InterpolatedForcing', etc.)
             backend: Backend to use ('scipy', 'jax', etc.)
             **kwargs: Parameters for the forcing function
             
@@ -331,8 +392,12 @@ class UnifiedForcingFactory:
                 raise ValueError(f"ConstFunc forcing function requires 'value' parameter")
             return cls.create_constantfunc(value, backend)
             
+        elif func_name == "InterpolatedForcing":
+            # Use the new create_interpolated method
+            return cls.create_interpolated(backend=backend, **kwargs)
+            
         else:
-            raise ValueError(f"Unknown forcing function type: '{func_name}'. Available: OnOff, PerDose, NDoses, ZeroFunc, ConstFunc")
+            raise ValueError(f"Unknown forcing function type: '{func_name}'. Available: OnOff, PerDose, NDoses, ZeroFunc, ConstFunc, InterpolatedForcing")
 
     @classmethod
     def _get_backend(cls, backend: str) -> ForcingBackend:

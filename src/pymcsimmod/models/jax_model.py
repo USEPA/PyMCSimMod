@@ -27,26 +27,6 @@ class EqxModel(eqx.Module):
     state_names: tuple[str, ...] = eqx.field()
     output_names: tuple[str, ...] = eqx.field()
 
-    @staticmethod
-    def InterpolatedForcing(
-        times: NumericArray, values: NumericArray, **kwargs: Any
-    ) -> Callable[[float], jnp.ndarray]:
-        """
-        Create an interpolated forcing function from time-value data for JAX.
-
-        Args:
-            times: Array-like of time points.
-            values: Array-like of corresponding values.
-            **kwargs: Additional parameters for InterpolatedForcing (e.g., interpolation_method).
-
-        Returns:
-            JAX-compiled callable function for the interpolated forcing.
-        """
-        from ..forcing.interpolated import InterpolatedForcing
-
-        forcing = InterpolatedForcing(times, values, **kwargs)
-        return forcing.create_function("jax")
-
     def compile_forcing_functions(self) -> None:
         """Convert all dict-based forcing functions to JIT-compiled callables using unified backend."""
         from ..forcing.unified import UnifiedForcingFactory
@@ -62,17 +42,10 @@ class EqxModel(eqx.Module):
                 args = ff.get("args", ())
                 kwargs = ff.get("kwargs", {})
                 
-                # Handle InterpolatedForcing separately since it's not in unified yet
-                if func_name == "InterpolatedForcing":
-                    func_factory = getattr(self, func_name, None)
-                    if func_factory is None or not callable(func_factory):
-                        raise AttributeError(f"Forcing function '{func_name}' not found in EqxModel.")
-                    compiled_functions[input_name] = func_factory(*args, **kwargs)
-                else:
-                    # Use unified forcing function factory
-                    compiled_functions[input_name] = UnifiedForcingFactory.create_forcing_function(
-                        func_name, backend="jax", **kwargs
-                    )
+                # Use unified forcing function factory for all forcing functions
+                compiled_functions[input_name] = UnifiedForcingFactory.create_forcing_function(
+                    func_name, backend="jax", **kwargs
+                )
             else:
                 # It's already a compiled function or other callable
                 compiled_functions[input_name] = ff

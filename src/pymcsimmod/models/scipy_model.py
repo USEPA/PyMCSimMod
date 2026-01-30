@@ -30,26 +30,6 @@ class ScipyModel(OdeModel):
         """Get the evaluation approach for ScipyModel."""
         return Approach.SCIPY
 
-    @staticmethod
-    def InterpolatedForcing(
-        times: NumericArray, values: NumericArray, **kwargs: Any
-    ) -> Callable[[float], float]:
-        """
-        Create an interpolated forcing function from time-value data.
-
-        Args:
-            times: Array-like of time points.
-            values: Array-like of corresponding values.
-            **kwargs: Additional parameters for InterpolatedForcing (e.g., interpolation_method).
-
-        Returns:
-            Callable function for the interpolated forcing.
-        """
-        from ..forcing.interpolated import InterpolatedForcing
-
-        forcing = InterpolatedForcing(times, values, **kwargs)
-        return forcing.create_function("scipy")
-
     def build_context(self, state_vals: np.ndarray, t: float) -> dict[str, Any]:
         """
         Build the context dictionary for a given state vector and time.
@@ -73,21 +53,13 @@ class ScipyModel(OdeModel):
                 args = ff.get("args", ())
                 kwargs = ff.get("kwargs", {})
                 
-                # Handle InterpolatedForcing separately since it's not in unified yet
-                if func_name == "InterpolatedForcing":
-                    func_factory = getattr(self, func_name, None)
-                    if func_factory is None or not callable(func_factory):
-                        raise AttributeError(f"Forcing function '{func_name}' not found in ScipyModel.")
-                    func = func_factory(*args, **kwargs)
-                    forcing_values[input_name] = func(t)
-                else:
-                    # Use unified forcing function factory
-                    func = UnifiedForcingFactory.create_forcing_function(
-                        func_name, backend="scipy", **kwargs
-                    )
-                    forcing_values[input_name] = func(t)
+                # Use unified forcing function factory for all forcing functions
+                func = UnifiedForcingFactory.create_forcing_function(
+                    func_name, backend="scipy", **kwargs
+                )
+                forcing_values[input_name] = func(t)
             else:
-                # fallback for legacy or direct function (should not occur with new logic)
+                # Direct callable (fallback for compatibility)
                 forcing_values[input_name] = ff(t)
 
         # Use the context utility to build the base context
@@ -318,19 +290,13 @@ class ScipyModel(OdeModel):
                 args = ff.get("args", ())
                 kwargs = ff.get("kwargs", {})
                 
-                # Handle InterpolatedForcing separately since it's not in unified yet
-                if func_name == "InterpolatedForcing":
-                    func_factory = getattr(self, func_name, None)
-                    if func_factory is None or not callable(func_factory):
-                        raise AttributeError(f"Forcing function '{func_name}' not found in ScipyModel.")
-                    input_functions[input_name] = func_factory(*args, **kwargs)
-                else:
-                    # Use unified forcing function factory
-                    input_functions[input_name] = UnifiedForcingFactory.create_forcing_function(
-                        func_name, backend="scipy", **kwargs
-                    )
+                # Use unified forcing function factory for all forcing functions
+                input_functions[input_name] = UnifiedForcingFactory.create_forcing_function(
+                    func_name, backend="scipy", **kwargs
+                )
             else:
-                input_functions[input_name] = ff  # already a callable
+                # Direct callable (already a function)
+                input_functions[input_name] = ff
 
         return ComputedModel(
             times=sol.t,
