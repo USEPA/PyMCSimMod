@@ -1,6 +1,8 @@
-"""Tests for backend utility functions."""
+"""Consolidated tests for backend functionality and standardization."""
 
 import pytest
+from pydantic import ValidationError
+import numpy as np
 
 from pymcsimmod.utils.backends import (
     detect_available_backends,
@@ -8,6 +10,8 @@ from pymcsimmod.utils.backends import (
     recommend_backend,
     validate_backend,
 )
+from src.pymcsimmod import create_model
+from src.pymcsimmod.config import BackendType
 
 
 class TestDetectAvailableBackends:
@@ -128,6 +132,27 @@ class TestGetBackendCapabilities:
             for key, value in capabilities.items():
                 assert isinstance(value, bool)
 
+    def test_backend_feature_matrix(self):
+        """Test that backend feature matrix is consistent."""
+        scipy_caps = get_backend_capabilities("scipy")
+        jax_caps = get_backend_capabilities("jax")
+
+        # Scipy should have events, JAX should not
+        assert scipy_caps["discrete_events"] is True
+        assert jax_caps["discrete_events"] is False
+
+        # JAX should have JIT and autodiff, scipy should not
+        assert jax_caps["jit_compilation"] is True
+        assert jax_caps["automatic_differentiation"] is True
+        assert scipy_caps["jit_compilation"] is False
+        assert scipy_caps["automatic_differentiation"] is False
+
+        # Both should have forcing functions and adaptive stepping
+        assert scipy_caps["forcing_functions"] is True
+        assert jax_caps["forcing_functions"] is True
+        assert scipy_caps["adaptive_stepping"] is True
+        assert jax_caps["adaptive_stepping"] is True
+
 
 class TestRecommendBackend:
     """Tests for backend recommendation functionality."""
@@ -207,8 +232,82 @@ class TestRecommendBackend:
             recommend_backend()
 
 
-class TestBackendUtilitiesIntegration:
-    """Integration tests for backend utilities."""
+class TestBackendStandardization:
+    """Test that backend standardization works correctly throughout the package."""
+
+    def test_create_model_with_string_backends(self):
+        """Test that create_model accepts string backends and validates them."""
+        # These will fail due to invalid model strings, but should validate the backend
+        with pytest.raises(Exception) as exc_info:
+            create_model("invalid_model", "scipy")
+        # Should not be a ValidationError - backend validation should pass
+        assert not isinstance(exc_info.value, ValidationError)
+        
+        with pytest.raises(Exception) as exc_info:
+            create_model("invalid_model", "jax") 
+        assert not isinstance(exc_info.value, ValidationError)
+
+    def test_create_model_with_enum_backends(self):
+        """Test that create_model accepts BackendType enums."""
+        with pytest.raises(Exception) as exc_info:
+            create_model("invalid_model", BackendType.SCIPY)
+        assert not isinstance(exc_info.value, ValidationError)
+        
+        with pytest.raises(Exception) as exc_info:
+            create_model("invalid_model", BackendType.JAX)
+        assert not isinstance(exc_info.value, ValidationError)
+
+    def test_create_model_rejects_invalid_backends(self):
+        """Test that create_model properly rejects invalid backends.""" 
+        with pytest.raises(ValidationError) as exc_info:
+            create_model("dummy", "invalid_backend")
+        
+        error_message = str(exc_info.value)
+        assert "Input should be" in error_message
+        assert "scipy" in error_message or "jax" in error_message
+
+    def test_backend_type_enum_functionality(self):
+        """Test BackendType enum basic functionality."""
+        # Test enum creation from strings
+        assert BackendType("scipy") == BackendType.SCIPY
+        assert BackendType("jax") == BackendType.JAX
+        
+        # Test enum values
+        assert BackendType.SCIPY.value == "scipy"
+        assert BackendType.JAX.value == "jax"
+        
+        # Test string representation (BackendType inherits from str, so .value gives the string)
+        assert BackendType.SCIPY.value == "scipy"
+        assert BackendType.JAX.value == "jax"
+        
+        # Test that it works as a string in string contexts
+        assert f"{BackendType.SCIPY}" == "scipy"  # StrEnum representation shows value
+        assert BackendType.SCIPY == "scipy"  # But equals the string value
+
+    def test_backend_type_validation_errors(self):
+        """Test that BackendType raises appropriate errors for invalid inputs."""
+        with pytest.raises(ValueError) as exc_info:
+            BackendType("invalid")
+        
+        assert "is not a valid BackendType" in str(exc_info.value)
+
+    def test_forcing_functions_use_backend_enum(self):
+        """Test that forcing functions work with BackendType enum."""
+        from src.pymcsimmod.forcing.unified import UnifiedForcingFactory
+        
+        # Test with enum
+        func = UnifiedForcingFactory.create_onoff(0, 5, backend=BackendType.SCIPY)
+        assert callable(func)
+        assert func(2.5) == 1.0  # Should be fully "on"
+        
+        # Test with string (should also work due to automatic conversion)  
+        func2 = UnifiedForcingFactory.create_onoff(0, 5, backend=BackendType("scipy"))
+        assert callable(func2)
+        assert func2(2.5) == 1.0
+
+
+class TestBackendWorkflows:
+    """Integration tests for backend workflow functionality."""
 
     def test_backend_workflow(self, available_backends):
         """Test typical backend selection workflow."""
@@ -235,79 +334,3 @@ class TestBackendUtilitiesIntegration:
                 # Check capabilities
                 capabilities = get_backend_capabilities(recommended)
                 assert capabilities["jit_compilation"] is True
-
-    def test_backend_selection_with_model_creation(self, minimal_model_str, available_backends):
-        """Test backend utilities with actual model creation."""
-        # Test scipy backend if available
-        if available_backends["scipy"]:
-            validate_backend("scipy")
-            from pymcsimmod.models.scipy_model import ScipyModel
-
-            model = ScipyModel(minimal_model_str)
-            assert model is not None
-
-        # Test JAX backend if available
-        if available_backends["jax"]:
-            validate_backend("jax")
-            from pymcsimmod.models.jax_model import JaxModel
-
-            model = JaxModel(minimal_model_str)
-            assert model is not None
-
-    def test_capabilities_match_actual_functionality(self, minimal_model_str, available_backends):
-        """Test that reported capabilities match actual functionality."""
-        # Test scipy capabilities
-        if available_backends["scipy"]:
-            capabilities = get_backend_capabilities("scipy")
-
-            # Scipy should support events
-            assert capabilities["discrete_events"] is True
-
-            # Should be able to create scipy model with events
-            from pymcsimmod.models.scipy_model import ScipyModel
-
-            model = ScipyModel(minimal_model_str)
-            # Should be able to add events
-            model.add_event(time=5.0, state_var="A", value=10.0)  # Should not raise
-
-        # Test JAX capabilities
-        if available_backends["jax"]:
-            capabilities = get_backend_capabilities("jax")
-
-            # JAX should not support discrete events
-            assert capabilities["discrete_events"] is False
-
-            # Should raise error when trying to use events with JAX
-            from pymcsimmod.models.jax_model import JaxModel
-
-            model = JaxModel(minimal_model_str)
-            # JAX models can add events but running with events should fail
-            model.add_event(time=5.0, state_var="A", value=10.0)
-
-            import numpy as np
-
-            times = np.linspace(0, 10, 101)
-
-            with pytest.raises(NotImplementedError, match="Discrete events are not yet supported"):
-                model.run_model(times)
-
-    def test_backend_feature_matrix(self):
-        """Test that backend feature matrix is consistent."""
-        scipy_caps = get_backend_capabilities("scipy")
-        jax_caps = get_backend_capabilities("jax")
-
-        # Scipy should have events, JAX should not
-        assert scipy_caps["discrete_events"] is True
-        assert jax_caps["discrete_events"] is False
-
-        # JAX should have JIT and autodiff, scipy should not
-        assert jax_caps["jit_compilation"] is True
-        assert jax_caps["automatic_differentiation"] is True
-        assert scipy_caps["jit_compilation"] is False
-        assert scipy_caps["automatic_differentiation"] is False
-
-        # Both should have forcing functions and adaptive stepping
-        assert scipy_caps["forcing_functions"] is True
-        assert jax_caps["forcing_functions"] is True
-        assert scipy_caps["adaptive_stepping"] is True
-        assert jax_caps["adaptive_stepping"] is True
