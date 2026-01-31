@@ -505,6 +505,106 @@ class TestModelComparisonAndValidation:
         # Final total should equal initial dose
         assert abs(total_values[-1] - 100.0) < 1e-6
 
+class TestComplexWorkflows:
+    """Test complex, real-world-like workflows."""
+    
+    def test_pharmacokinetic_workflow(self, complex_scipy_model):
+        """Test a complete pharmacokinetic modeling workflow."""
+        model = complex_scipy_model
+        
+        # Simulate oral dosing scenario
+        times = np.linspace(0, 24, 241)  # 24 hours, 0.1 hr intervals
+        
+        # Multiple doses - NDoses takes (times_list, duration, scale)
+        model.forcing_functions["dose"] = model.NDoses([0.0, 8.0, 16.0], 1.0, 100.0)
+        
+        # Initial conditions
+        model.update_Y0(A0=0.0, A1=0.0, AUC=0.0)
+        
+        # Run simulation
+        result = model.run_model(times)
+        
+        # Basic pharmacokinetic checks
+        assert result.states.shape[0] == len(times)
+        assert result.states.shape[1] == 3
+        
+        # Check that dosing creates concentration spikes
+        # Find peaks after each dose
+        dose_times = [0.0, 8.0, 16.0]
+        for dose_time in dose_times:
+            # Find index 1 hour after dose
+            post_dose_idx = np.argmin(np.abs(times - (dose_time + 1.0)))
+            pre_dose_idx = np.argmin(np.abs(times - dose_time))
+            
+            # Concentration should increase after dose
+            if post_dose_idx < len(result.states):
+                assert result.states[post_dose_idx, 1] > result.states[pre_dose_idx, 1]
+        
+        # AUC should be monotonically increasing
+        auc_diff = np.diff(result.states[:, 2])
+        assert np.all(auc_diff >= -1e-10)  # Account for numerical precision
+
+    def test_environmental_fate_workflow(self, pred_prey_model_str):
+        """Test an environmental/ecological modeling workflow."""
+        pytest.importorskip("scipy", reason="Scipy required for this test")
+            
+        model = ScipyModel(pred_prey_model_str)
+        
+        # Long-term simulation
+        times = np.linspace(0, 20, 2001)
+        
+        # Environmental disturbance events
+        model.add_event(time=5.0, state_var="prey", value=15.0)      # Population boost
+        model.add_event(time=10.0, state_var="predator", value=3.0)  # Predator reduction
+        model.add_event(time=15.0, state_var="prey", value=8.0)      # Disease outbreak
+        
+        # Run simulation
+        result = model.run_model(times)
+        
+        # Check population dynamics
+        prey_pop = result.states[:, 0]
+        predator_pop = result.states[:, 1]
+        
+        # Both populations should remain positive
+        assert np.all(prey_pop > 0)
+        assert np.all(predator_pop > 0)
+        
+        # Check that events had impact
+        event_indices = [
+            np.argmin(np.abs(times - 5.0)),
+            np.argmin(np.abs(times - 10.0)), 
+            np.argmin(np.abs(times - 15.0))
+        ]
+        
+        # Populations should change at event times
+        for i, event_idx in enumerate(event_indices):
+            if event_idx > 0 and event_idx < len(times) - 1:
+                before = result.states[event_idx - 1]
+                after = result.states[event_idx + 1] 
+                # There should be some change
+                assert not np.allclose(before, after, rtol=0.1)
+
+    def test_error_recovery_workflow(self, simple_scipy_model, short_times):
+        """Test model robustness with various parameter ranges."""
+        model = simple_scipy_model
+        
+        # Test with reasonable parameter values
+        model.update_constants(ke=0.1)
+        result = model.run_model(short_times)
+        assert isinstance(result, ComputedModel)
+        
+        # Test with different initial conditions
+        model.update_Y0(A=1.0)
+        result = model.run_model(short_times)
+        assert isinstance(result, ComputedModel)
+        
+        # Test model works with normal discrete events
+        if hasattr(model, 'clear_events'):
+            model.clear_events()
+        model.add_event(time=1.0, state_var="A", value=5.0)
+        result = model.run_model(short_times)
+        assert isinstance(result, ComputedModel)
+        assert not np.any(np.isnan(result.states))
 
 if __name__ == "__main__":
     pytest.main([__file__])
