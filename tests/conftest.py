@@ -187,6 +187,50 @@ def minimal_model_str() -> str:
     """
 
 
+@pytest.fixture(scope="session")
+def bodyweight_pk_model_str() -> str:
+    """PK model with bodyweight input for testing forcing function enhancements."""
+    return """
+    States = {
+        A1,     # Amount in central compartment (mg)
+        AUC     # Area under concentration curve (mg*h/L)
+    };
+
+    Inputs = {
+        dose_in,    # Dose input rate (mg/h)
+        M_in        # Body mass (kg)
+    };
+
+    Outputs = {
+        C,          # Concentration (mg/L)
+        M_current   # Current body mass (kg) for verification
+    };
+
+    # Parameters
+    Vdc = 0.5;      # Volume distribution constant (L/kg)
+    k_el = 0.1;     # Elimination rate constant (/h)
+
+    Initialize {
+        A1 = 0;
+        AUC = 0;
+    }
+
+    Dynamics {
+        M_current = M_in;
+        Vd = Vdc * M_current;
+        C = A1 / Vd;
+        dt(A1) = dose_in - k_el * A1;
+        dt(AUC) = C;
+    }
+
+    CalcOutputs {
+        # C and M_current already calculated
+    }
+
+    End.
+    """
+
+
 # --- Time and Data Fixtures ---
 @pytest.fixture
 def standard_times() -> np.ndarray:
@@ -319,3 +363,49 @@ def interpolation_data() -> Dict[str, List[float]]:
         "times": [0.0, 2.0, 4.0, 6.0, 8.0, 10.0],
         "values": [0.0, 5.0, 10.0, 8.0, 3.0, 0.0]
     }
+
+
+@pytest.fixture(scope="session")
+def limited_inputs_model_str() -> str:
+    """Model with limited inputs to test rejection of non-input variable assignment."""
+    return """
+    States = {
+        A1,     # Central compartment amount
+        A2      # Peripheral compartment amount  
+    };
+
+    Inputs = {
+        dose_in    # Only this variable can have forcing functions
+    };
+
+    Outputs = {
+        C1,        # Central concentration 
+        C2,        # Peripheral concentration
+        total_amount    # Total amount
+    };
+
+    # Parameters
+    k12 = 0.1;
+    k21 = 0.05;
+    k10 = 0.2;
+    V1 = 10.0;
+    V2 = 15.0;
+
+    Initialize {
+        A1 = 0;
+        A2 = 0;
+    }
+
+    Dynamics {
+        dt(A1) = dose_in + k21 * A2 - (k12 + k10) * A1;
+        dt(A2) = k12 * A1 - k21 * A2;
+    }
+
+    CalcOutputs {
+        C1 = A1 / V1;
+        C2 = A2 / V2;
+        total_amount = A1 + A2;
+    }
+
+    End.
+    """

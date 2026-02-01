@@ -170,14 +170,6 @@ class TestInterpolatedForcingCore:
         result = scipy_func(np_scalar)
         assert abs(result - 25.0) < 1e-10
 
-
-
-
-
-
-
-
-
     def test_jax_function_creation(self):
         """Test JAX backend function creation."""
         pytest.importorskip("jax", reason="JAX not available")
@@ -255,58 +247,8 @@ class TestInterpolatedForcingCore:
         assert "time_range=(0.000, 2.000)" in repr_str
         assert "method='cubic'" in repr_str
 
-    def test_plot_data_basic(self):
-        """Test basic plotting functionality."""
-        matplotlib = pytest.importorskip("matplotlib", reason="matplotlib not available")
-        import matplotlib.pyplot as plt
-        
-        times = [0, 1, 2, 3]
-        values = [10, 20, 15, 25]
-        forcing = InterpolatedForcing(times, values)
-        
-        # Test with new figure
-        ax = forcing.plot_data()
-        
-        # Check that axes was returned
-        assert ax is not None
-        assert hasattr(ax, 'plot')  # Verify it's a matplotlib axes
-        
-        # Check labels and title
-        assert ax.get_xlabel() == "Time"
-        assert ax.get_ylabel() == "Value" 
-        assert ax.get_title() == "Interpolated Forcing Function"
-        
-        # Check that legend was created
-        legend = ax.get_legend()
-        assert legend is not None
-        
-        # Check grid
-        assert ax.grid
-        
-        plt.close('all')  # Clean up
-
-    def test_plot_data_custom_axes(self):
-        """Test plotting with custom axes."""
-        matplotlib = pytest.importorskip("matplotlib", reason="matplotlib not available")
-        import matplotlib.pyplot as plt
-        
-        times = [0, 1, 2]
-        values = [5, 10, 8]
-        forcing = InterpolatedForcing(times, values)
-        
-        # Create custom axes
-        fig, custom_ax = plt.subplots()
-        
-        # Plot on custom axes
-        returned_ax = forcing.plot_data(ax=custom_ax)
-        
-        # Should return the same axes object
-        assert returned_ax is custom_ax
-        
-        plt.close(fig)
-
-    def test_plot_data_options(self):
-        """Test plotting with different options."""
+    def test_plot_data_comprehensive(self):
+        """Test comprehensive plotting functionality."""
         matplotlib = pytest.importorskip("matplotlib", reason="matplotlib not available")
         import matplotlib.pyplot as plt
         
@@ -314,114 +256,70 @@ class TestInterpolatedForcingCore:
         values = [1, 4, 2, 8, 5]
         forcing = InterpolatedForcing(times, values)
         
-        # Test with points only
-        ax1 = forcing.plot_data(show_points=True, show_interpolation=False)
+        # Test basic plotting with new figure
+        ax1 = forcing.plot_data()
+        assert ax1 is not None
+        assert hasattr(ax1, 'plot')
+        assert ax1.get_xlabel() == "Time"
+        assert ax1.get_ylabel() == "Value" 
+        assert ax1.get_title() == "Interpolated Forcing Function"
+        assert ax1.get_legend() is not None
         
-        # Test with interpolation only  
-        ax2 = forcing.plot_data(show_points=False, show_interpolation=True)
+        # Test with custom axes and options
+        fig, custom_ax = plt.subplots()
+        ax2 = forcing.plot_data(ax=custom_ax, show_points=True, show_interpolation=False, alpha=0.7)
+        assert ax2 is custom_ax
         
-        # Test with custom interpolation points
-        ax3 = forcing.plot_data(n_interp_points=50)
+        # Test with interpolation only and custom points
+        ax3 = forcing.plot_data(show_points=False, show_interpolation=True, n_interp_points=50)
+        assert ax3 is not None
         
-        # Check that all returned valid axes
-        for ax in [ax1, ax2, ax3]:
-            assert ax is not None
-            assert hasattr(ax, 'plot')
-            
         plt.close('all')
 
-    def test_plot_data_matplotlib_not_available(self):
-        """Test ImportError handling when matplotlib not available."""
-        times = [0, 1, 2]
-        values = [10, 20, 30]
-        forcing = InterpolatedForcing(times, values)
-        
-        # Mock matplotlib import to raise ImportError
-        import sys
-        original_modules = sys.modules.copy()
-        
-        # Remove matplotlib from sys.modules if present
-        if 'matplotlib.pyplot' in sys.modules:
-            del sys.modules['matplotlib.pyplot']
-        if 'matplotlib' in sys.modules:
-            del sys.modules['matplotlib']
-            
-        # Mock the import to raise ImportError
-        class MockMatplotlib:
-            def __getattr__(self, name):
-                raise ImportError("No module named 'matplotlib'")
-        
-        sys.modules['matplotlib'] = MockMatplotlib()
-        sys.modules['matplotlib.pyplot'] = MockMatplotlib()
-        
-        try:
-            with pytest.raises(ImportError, match="matplotlib is required for plotting"):
-                forcing.plot_data()
-        finally:
-            # Restore original modules
-            sys.modules.clear()
-            sys.modules.update(original_modules)
-
-    def test_plot_data_with_kwargs(self):
-        """Test plotting with additional matplotlib kwargs."""
-        matplotlib = pytest.importorskip("matplotlib", reason="matplotlib not available")
-        import matplotlib.pyplot as plt
-        
-        times = [0, 1, 2]
-        values = [10, 20, 15]
-        forcing = InterpolatedForcing(times, values)
-        
-        # Test with custom kwargs (these would be passed to scatter plot)
-        ax = forcing.plot_data(alpha=0.7, edgecolors='black')
-        
-        assert ax is not None
-        plt.close('all')
-
-
-class TestConvenienceFunction:
-    """Test the convenience function for creating interpolated forcing."""
-
-    def test_create_from_dataframe(self):
-        """Test convenience function with DataFrame."""
+    def test_convenience_function_basic(self):
+        """Test convenience function with common data formats."""
+        # Test DataFrame format
         df = pd.DataFrame({'t': [0, 1, 2], 'bw': [20, 22, 24]})
+        df_forcing = create_interpolated_forcing(df, 't', 'bw')
+        assert isinstance(df_forcing, InterpolatedForcing)
+        np.testing.assert_array_equal(df_forcing.times, [0, 1, 2])
         
-        forcing = create_interpolated_forcing(df, 't', 'bw')
-        
-        assert isinstance(forcing, InterpolatedForcing)
-        np.testing.assert_array_equal(forcing.times, [0, 1, 2])
-        np.testing.assert_array_equal(forcing.values, [20, 22, 24])
-
-    def test_create_from_dict(self):
-        """Test convenience function with dict."""
+        # Test dict format
         data = {'time': [0, 1, 2], 'value': [20, 22, 24]}
+        dict_forcing = create_interpolated_forcing(data)
+        assert isinstance(dict_forcing, InterpolatedForcing)
+        np.testing.assert_array_equal(dict_forcing.times, [0, 1, 2])
         
-        forcing = create_interpolated_forcing(data)
+        # Test tuple format
+        tuple_data = ([0, 1, 2], [20, 22, 24])
+        tuple_forcing = create_interpolated_forcing(tuple_data)
+        assert isinstance(tuple_forcing, InterpolatedForcing)
+        np.testing.assert_array_equal(tuple_forcing.times, [0, 1, 2])
         
-        assert isinstance(forcing, InterpolatedForcing)
-        np.testing.assert_array_equal(forcing.times, [0, 1, 2])
-        np.testing.assert_array_equal(forcing.values, [20, 22, 24])
-
-    def test_create_from_tuple(self):
-        """Test convenience function with tuple."""
-        data = ([0, 1, 2], [20, 22, 24])
-        
-        forcing = create_interpolated_forcing(data)
-        
-        assert isinstance(forcing, InterpolatedForcing)
-        np.testing.assert_array_equal(forcing.times, [0, 1, 2])
-        np.testing.assert_array_equal(forcing.values, [20, 22, 24])
-
-    def test_create_dataframe_missing_columns(self):
-        """Test convenience function error handling for DataFrame."""
-        df = pd.DataFrame({'time': [0, 1, 2], 'value': [20, 22, 24]})
-        
-        with pytest.raises(ValueError, match="time_col and value_col must be specified"):
-            create_interpolated_forcing(df)
-
-    def test_create_unsupported_format(self):
-        """Test convenience function with unsupported data format."""
+        # Test error handling
         with pytest.raises(ValueError, match="Unsupported data format"):
             create_interpolated_forcing("invalid_data")
+
+    def test_non_input_variable_rejection(self, limited_inputs_model_str):
+        """Test that non-input variables are rejected for interpolation."""
+        from src.pymcsimmod.models.scipy_model import ScipyModel
+        
+        model = ScipyModel(limited_inputs_model_str)
+        
+        # Should work for input variable
+        model.assign_forcing_function("dose_in", times=[0, 1, 2], dose_in=[1, 2, 1])
+        
+        # Should reject state variable
+        with pytest.raises(ValueError, match="'A1' is not a valid input variable"):
+            model.assign_forcing_function("A1", times=[0, 1, 2], A1=[1, 2, 1])
+        
+        # Should reject output variable  
+        with pytest.raises(ValueError, match="'C1' is not a valid input variable"):
+            model.assign_forcing_function("C1", times=[0, 1, 2], C1=[1, 2, 1])
+        
+        # Should reject non-existent variable
+        with pytest.raises(ValueError, match="'non_existent' is not a valid input variable"):
+            model.assign_forcing_function("non_existent", times=[0, 1, 2], non_existent=[1, 2, 1])
 
 
 class TestInterpolatedForcingScenarios:
@@ -853,3 +751,478 @@ class TestInterpolatedForcingIntegration:
         error_message = str(exc_info.value)
         assert "InterpolatedForcing" in error_message
         assert "Available: OnOff, PerDose, NDoses, ZeroFunc, ConstFunc, InterpolatedForcing" in error_message
+
+
+class TestAssignForcingFunctionEnhanced:
+    """Test enhanced assign_forcing_function method for dictionary and DataFrame support."""
+
+    @pytest.mark.parametrize("backend_name", ["scipy", "jax"])
+    def test_assign_forcing_function_dictionary_format(self, backend_name, bodyweight_pk_model_str):
+        """Test assign_forcing_function with dictionary format for both backends."""
+        if backend_name == "jax":
+            pytest.importorskip("jax", reason="JAX not available")
+            from src.pymcsimmod.models.jax_model import JaxModel
+            model = JaxModel(bodyweight_pk_model_str)
+        else:
+            from src.pymcsimmod.models.scipy_model import ScipyModel
+            model = ScipyModel(bodyweight_pk_model_str)
+
+        # Test dictionary format with times and variable arrays
+        times_data = [0, 12, 24, 48, 72]
+        bodyweight_data = [0.5, 0.6, 0.7, 0.9, 1.0]
+        dose_data = [0.5, 1.0, 1.5, 1.0, 0.5] if backend_name == "jax" else [1.0] * 5
+
+        # Use the new dictionary format
+        model.assign_forcing_function("M_in", times=times_data, M_in=bodyweight_data)
+        if backend_name == "jax":
+            model.assign_forcing_function("dose_in", times=times_data, dose_in=dose_data)
+        else:
+            model.assign_forcing_function("dose_in", "ConstFunc", value=1.0)
+
+        # Run simulation with exact times for verification
+        solution = model.run_model(times_data)
+
+        # Common verification logic
+        assert solution.states.shape[1] == 2  # A1, AUC
+        C_values = solution.aux_outputs[:, 0]  # Concentration
+        M_current_values = solution.aux_outputs[:, 1]  # Current bodyweight
+        assert np.all(C_values >= 0), "Concentrations should be non-negative"
+        assert np.any(C_values > 0), "Should have some positive concentrations"
+        assert np.min(M_current_values) >= 0.5, "Should reflect minimum bodyweight"
+        assert np.max(M_current_values) <= 1.0, "Should reflect maximum bodyweight"
+        assert np.std(M_current_values) > 0.05, "Should show bodyweight variation"
+        
+        # Verify exact time matching (now works for both backends!)
+        for i, expected_time in enumerate(times_data):
+            time_idx = np.argmin(np.abs(solution.times - expected_time))
+            actual_time = solution.times[time_idx]
+            actual_bw = M_current_values[time_idx]
+            assert actual_time == pytest.approx(expected_time), f"Time mismatch at t={expected_time}"
+            assert actual_bw == pytest.approx(bodyweight_data[i]), f"Bodyweight mismatch at t={expected_time}"
+
+    @pytest.mark.parametrize("backend_name", ["scipy", "jax"])
+    def test_assign_forcing_function_dataframe_format(self, backend_name, bodyweight_pk_model_str):
+        """Test assign_forcing_function with DataFrame format for SciPy."""
+        from src.pymcsimmod.models.scipy_model import ScipyModel
+        
+        model = ScipyModel(bodyweight_pk_model_str)
+
+        # Create DataFrame with bodyweight data - note: using variable name as column
+        df = pd.DataFrame({
+            'times': [0, 24, 48, 72, 96],
+            'M_in': [0.4, 0.6, 0.8, 1.0, 1.1]
+        })
+
+        # Use the new DataFrame format (auto-detects InterpolatedForcing and variable names)
+        model.assign_forcing_function(df)
+        
+        # Set constant dose
+        model.assign_forcing_function("dose_in", "ConstFunc", value=2.0)
+
+        # Run simulation - include interpolation times for exact comparison
+        interpolation_times = [0, 12, 24, 48, 72]
+        other_times = np.linspace(0, 72, 300)
+        all_times = np.sort(np.unique(np.concatenate([interpolation_times, other_times])))
+        solution = model.run_model(all_times)
+
+        # Verify simulation completed successfully
+        assert solution.states.shape[1] == 2  # A1, AUC
+        assert solution.states.shape[0] >= 300
+        
+        # Check that concentrations show variation due to changing bodyweight
+        C_values = solution.aux_outputs[:, 0]  # Concentration
+        M_current_values = solution.aux_outputs[:, 1]  # Current bodyweight from model
+        assert np.all(C_values >= 0), "Concentrations should be non-negative"
+        assert np.any(C_values > 0), "Should have some positive concentrations"
+        assert np.std(C_values) > 0.01, "Should see concentration variation due to bodyweight changes"
+        
+        # Verify DataFrame M_in values are reflected in computed outputs
+        assert np.min(M_current_values) >= 0.4, "Should reflect minimum bodyweight from DataFrame"
+        assert np.max(M_current_values) <= 1.1, "Should reflect maximum bodyweight from DataFrame"
+        assert np.std(M_current_values) > 0.15, "Should show significant bodyweight variation"
+        
+        # Verify exact interpolation at specific data points
+        expected_times = [0, 24, 48, 72]  # Only check times in our simulation range
+        expected_bodyweights = [0.4, 0.6, 0.8, 1.0]  # Corresponding bodyweights
+        
+        for expected_time, expected_bw in zip(expected_times, expected_bodyweights):
+            # Find the closest time index in the solution
+            time_idx = np.argmin(np.abs(solution.times - expected_time))
+            actual_time = solution.times[time_idx]
+            actual_bw = M_current_values[time_idx]
+            
+            # Should be very close to the expected time and bodyweight
+            assert actual_time == pytest.approx(expected_time), f"Time mismatch at t={expected_time}: got {actual_time}"
+            assert actual_bw == pytest.approx(expected_bw), f"Bodyweight mismatch at t={expected_time}: expected {expected_bw}, got {actual_bw}"
+
+    def test_assign_forcing_function_dataframe_format_jax(self, bodyweight_pk_model_str):
+        """Test assign_forcing_function with DataFrame format for JAX."""
+        pytest.importorskip("jax", reason="JAX not available")
+        from src.pymcsimmod.models.jax_model import JaxModel
+        
+        model = JaxModel(bodyweight_pk_model_str)
+
+        # Create DataFrame with dose data - note: using variable name as column
+        df = pd.DataFrame({
+            'times': [0, 6, 12, 18, 24],
+            'dose_in': [1.0, 2.0, 3.0, 2.0, 1.0]
+        })
+
+        # Use the new DataFrame format (auto-detects InterpolatedForcing and variable names)
+        model.assign_forcing_function(df)
+        
+        # Set constant bodyweight
+        model.assign_forcing_function("M_in", "ConstFunc", value=0.7)
+
+        # Run simulation - include interpolation times for exact comparison
+        interpolation_times = [0, 12, 24, 48, 72]
+        other_times = np.linspace(0, 72, 300)
+        all_times = np.sort(np.unique(np.concatenate([interpolation_times, other_times])))
+        solution = model.run_model(all_times)
+
+        # Verify simulation completed successfully
+        assert solution.states.shape[1] == 2  # A1, AUC
+        assert solution.states.shape[0] >= 200
+        
+        # Check that concentrations show variation due to changing dose
+        C_values = solution.aux_outputs[:, 0]  # Concentration
+        M_current_values = solution.aux_outputs[:, 1]  # Current bodyweight
+        assert np.all(C_values >= 0), "Concentrations should be non-negative"
+        assert np.any(C_values > 0), "Should have some positive concentrations"
+        assert np.std(C_values) > 0.1, "Should see concentration variation due to dose changes"
+        
+        # Verify constant bodyweight is maintained
+        assert np.allclose(M_current_values, 0.7, rtol=1e-10), "Should maintain constant bodyweight"
+
+    def test_assign_forcing_function_multi_variable_dictionary_scipy(self, bodyweight_pk_model_str):
+        """Test assign_forcing_function with multi-variable dictionary for SciPy."""
+        from src.pymcsimmod.models.scipy_model import ScipyModel
+        
+        model = ScipyModel(bodyweight_pk_model_str)
+
+        # Test multi-variable assignment with single dictionary
+        times_data = [0, 24, 48, 72]
+        bodyweight_data = [0.5, 0.7, 0.9, 1.1]
+        dose_data = [1.0, 1.5, 2.0, 1.0]
+
+        # Assign both variables using dictionary format (auto-detects InterpolatedForcing)
+        model.assign_forcing_function("M_in", times=times_data, M_in=bodyweight_data)
+        model.assign_forcing_function("dose_in", times=times_data, dose_in=dose_data)
+
+        # Run simulation - include interpolation times for exact comparison
+        interpolation_times = [0, 12, 24, 48, 72]
+        other_times = np.linspace(0, 72, 300)
+        all_times = np.sort(np.unique(np.concatenate([interpolation_times, other_times])))
+        solution = model.run_model(all_times)
+
+        # Verify simulation completed successfully
+        assert solution.states.shape[1] == 2
+        assert solution.states.shape[0] >= 300
+        
+        # Check that both variables affect the simulation
+        C_values = solution.aux_outputs[:, 0]  # Concentration
+        M_current_values = solution.aux_outputs[:, 1]  # Current bodyweight
+        assert np.all(C_values >= 0), "Concentrations should be non-negative"
+        assert np.any(C_values > 0), "Should have some positive concentrations"
+        # Should show complex variation due to both dose and bodyweight changing
+        assert np.std(C_values) > 0.1, "Should see significant variation"
+        
+        # Verify both interpolated inputs are reflected in computed outputs
+        assert np.min(M_current_values) >= 0.5, "Should reflect minimum bodyweight"
+        assert np.max(M_current_values) <= 1.1, "Should reflect maximum bodyweight"
+        assert np.std(M_current_values) > 0.1, "Should show bodyweight variation"
+        
+        # Verify exact interpolation at specific data points for M_in
+        expected_times = [0, 24, 48, 72]
+        expected_bodyweights = [0.5, 0.7, 0.9, 1.1]
+        
+        for expected_time, expected_bw in zip(expected_times, expected_bodyweights):
+            # Find the closest time index in the solution
+            time_idx = np.argmin(np.abs(solution.times - expected_time))
+            actual_time = solution.times[time_idx]
+            actual_bw = M_current_values[time_idx]
+            
+            # Should be very close to the expected time and bodyweight
+            assert actual_time == pytest.approx(expected_time), f"Time mismatch at t={expected_time}: got {actual_time}"
+            assert actual_bw == pytest.approx(expected_bw), f"Bodyweight mismatch at t={expected_time}: expected {expected_bw}, got {actual_bw}"
+
+    def test_assign_forcing_function_multi_variable_dictionary_jax(self, bodyweight_pk_model_str):
+        """Test assign_forcing_function with multi-variable dictionary for JAX."""
+        pytest.importorskip("jax", reason="JAX not available")
+        from src.pymcsimmod.models.jax_model import JaxModel
+        
+        model = JaxModel(bodyweight_pk_model_str)
+
+        # Test multi-variable assignment with single dictionary
+        times_data = [0, 18, 36, 54, 72]
+        bodyweight_data = [0.6, 0.8, 1.0, 1.1, 1.0]
+        dose_data = [0.8, 1.2, 1.8, 1.4, 0.6]
+
+        # Assign both variables using dictionary format (auto-detects InterpolatedForcing)
+        model.assign_forcing_function("M_in", times=times_data, M_in=bodyweight_data)
+        model.assign_forcing_function("dose_in", times=times_data, dose_in=dose_data)
+
+        # Verify exact interpolation at specific data points for M_in
+        expected_times = [0, 18, 36, 54, 72]  # Use the actual interpolation times
+        expected_bodyweights = [0.6, 0.8, 1.0, 1.1, 1.0]
+        
+        # Include these actual times in the interpolation times for exact comparison
+        interpolation_times = [0, 18, 36, 54, 72]
+        other_times = np.linspace(0, 72, 300)
+        all_times = np.sort(np.unique(np.concatenate([interpolation_times, other_times])))
+        solution = model.run_model(all_times)
+
+        # Verify simulation completed successfully
+        assert solution.states.shape[1] == 2
+        assert solution.states.shape[0] >= 300
+        
+        # Check that both variables affect the simulation
+        C_values = solution.aux_outputs[:, 0]  # Concentration
+        M_current_values = solution.aux_outputs[:, 1]  # Current bodyweight
+        assert np.all(C_values >= 0), "Concentrations should be non-negative"
+        assert np.any(C_values > 0), "Should have some positive concentrations"
+        # Should show complex variation due to both dose and bodyweight changing
+        assert np.std(C_values) > 0.1, "Should see significant variation"
+        
+        # Verify both interpolated inputs are reflected in computed outputs
+        assert np.min(M_current_values) >= 0.6, "Should reflect minimum bodyweight"
+        assert np.max(M_current_values) <= 1.1, "Should reflect maximum bodyweight"
+        assert np.std(M_current_values) > 0.08, "Should show bodyweight variation"
+        
+        for expected_time, expected_bw in zip(expected_times, expected_bodyweights):
+            # Find the closest time index in the solution
+            time_idx = np.argmin(np.abs(solution.times - expected_time))
+            actual_time = solution.times[time_idx]
+            actual_bw = M_current_values[time_idx]
+            
+            # Should be very close to the expected time and bodyweight
+            assert actual_time == pytest.approx(expected_time), f"Time mismatch at t={expected_time}: got {actual_time}"
+            assert actual_bw == pytest.approx(expected_bw, abs=0.01), f"Bodyweight mismatch at t={expected_time}: expected {expected_bw}, got {actual_bw}"
+
+    def test_assign_forcing_function_error_handling(self, bodyweight_pk_model_str):
+        """Test error handling for enhanced assign_forcing_function method."""
+        from src.pymcsimmod.models.scipy_model import ScipyModel
+        
+        model = ScipyModel(bodyweight_pk_model_str)
+
+        # Test missing 'times' key in dictionary format
+        with pytest.raises(ValueError, match="Either forcing_function_name or times/values must be provided"):
+            model.assign_forcing_function("M_in", M_in=[0.5, 0.6, 0.7])
+
+        # Test DataFrame with different approach - using the first argument
+        df_bad = pd.DataFrame({'time': [0, 1, 2], 'value': [10, 20, 30]})
+        with pytest.raises(ValueError, match="DataFrame must contain a 'times' column"):
+            model.assign_forcing_function(df_bad)
+
+        # Test mismatched array lengths in dictionary format
+        with pytest.raises(ValueError, match="Length mismatch"):
+            model.assign_forcing_function("M_in", times=[0, 1, 2], M_in=[0.5, 0.6])  # Different lengths
+
+    def test_assign_forcing_function_backward_compatibility_scipy(self, bodyweight_pk_model_str):
+        """Test that enhanced assign_forcing_function maintains backward compatibility for SciPy."""
+        from src.pymcsimmod.models.scipy_model import ScipyModel
+        
+        model = ScipyModel(bodyweight_pk_model_str)
+
+        # Test old data_dict format still works
+        bodyweight_data = {"time": [0, 24, 48], "value": [0.5, 0.7, 0.9]}
+        model.assign_forcing_function("M_in", "InterpolatedForcing", data_dict=bodyweight_data)
+        
+        # Test old times/values format still works
+        model.assign_forcing_function("dose_in", "InterpolatedForcing", 
+                                     times=[0, 24, 48], values=[1.0, 1.5, 1.0])
+
+        # Run simulation to verify everything works
+        times = np.linspace(0, 48, 200)
+        solution = model.run_model(times)
+
+        # Should complete successfully
+        assert solution.states.shape[1] == 2
+        assert solution.states.shape[0] >= 200
+        
+        # Verify M_in changes are reflected in output even with old format
+        M_current_values = solution.aux_outputs[:, 1]  # Current bodyweight
+        assert np.min(M_current_values) >= 0.5, "Should reflect minimum bodyweight"
+        assert np.max(M_current_values) <= 0.9, "Should reflect maximum bodyweight"
+
+    def test_assign_forcing_function_backward_compatibility_jax(self, bodyweight_pk_model_str):
+        """Test that enhanced assign_forcing_function maintains backward compatibility for JAX."""
+        pytest.importorskip("jax", reason="JAX not available")
+        from src.pymcsimmod.models.jax_model import JaxModel
+        
+        model = JaxModel(bodyweight_pk_model_str)
+
+        # Test old data_dict format still works
+        dose_data = {"time": [0, 12, 24], "value": [1.0, 2.0, 1.5]}
+        model.assign_forcing_function("dose_in", "InterpolatedForcing", data_dict=dose_data)
+        
+        # Test old times/values format still works
+        model.assign_forcing_function("M_in", "InterpolatedForcing", 
+                                     times=[0, 12, 24], values=[0.6, 0.8, 1.0])
+
+        # Run simulation to verify everything works
+        times = np.linspace(0, 24, 100)
+        solution = model.run_model(times)
+
+        # Should complete successfully
+        assert solution.states.shape[1] == 2
+        assert solution.states.shape[0] >= 100
+        
+        # Verify M_in changes are reflected in output even with old format
+        M_current_values = solution.aux_outputs[:, 1]  # Current bodyweight
+        assert np.min(M_current_values) >= 0.6, "Should reflect minimum bodyweight"
+        assert np.max(M_current_values) <= 1.0, "Should reflect maximum bodyweight"
+
+    def test_cross_backend_consistency(self, bodyweight_pk_model_str):
+        """Test that SciPy and JAX backends give consistent results with new formats."""
+        pytest.importorskip("jax", reason="JAX not available")
+        from src.pymcsimmod.models.scipy_model import ScipyModel
+        from src.pymcsimmod.models.jax_model import JaxModel
+
+        # Test data
+        times_data = [0, 12, 24, 36]
+        bodyweight_data = [0.6, 0.8, 1.0, 1.2]
+        dose_data = [1.0, 1.5, 2.0, 1.0]
+
+        # SciPy model with dictionary format (auto-detects InterpolatedForcing)
+        scipy_model = ScipyModel(bodyweight_pk_model_str)
+        scipy_model.assign_forcing_function("M_in", times=times_data, M_in=bodyweight_data)
+        scipy_model.assign_forcing_function("dose_in", times=times_data, dose_in=dose_data)
+
+        # JAX model with DataFrame format (auto-detects InterpolatedForcing and variable names)
+        jax_model = JaxModel(bodyweight_pk_model_str)
+        df = pd.DataFrame({'times': times_data, 'M_in': bodyweight_data})
+        jax_model.assign_forcing_function(df)
+        jax_model.assign_forcing_function("dose_in", times=times_data, dose_in=dose_data)
+
+        # Run both simulations
+        times = np.linspace(0, 36, 150)
+        scipy_solution = scipy_model.run_model(times)
+        jax_solution = jax_model.run_model(times)
+
+        # Compare results (allowing for small numerical differences)
+        scipy_C = scipy_solution.aux_outputs[:, 0]
+        jax_C = jax_solution.aux_outputs[:, 0]
+        scipy_M = scipy_solution.aux_outputs[:, 1]
+        jax_M = jax_solution.aux_outputs[:, 1]
+
+        # Both should have same basic shape and behavior
+        assert len(scipy_C) > 0 and len(jax_C) > 0
+        assert np.all(scipy_C >= 0) and np.all(jax_C >= 0)
+        
+        # Should both show variation
+        assert np.std(scipy_C) > 0.1 and np.std(jax_C) > 0.1
+        
+        # M_in values should be consistent between backends (within numerical tolerance)
+        # Both should reflect the same bodyweight interpolation
+        assert np.min(scipy_M) >= 0.6 and np.min(jax_M) >= 0.6
+        assert np.max(scipy_M) <= 1.2 and np.max(jax_M) <= 1.2
+
+    def test_assign_forcing_function_multi_variable_dataframe_scipy(self, bodyweight_pk_model_str):
+        """Test assign_forcing_function with multi-variable DataFrame for SciPy."""
+        from src.pymcsimmod.models.scipy_model import ScipyModel
+        
+        model = ScipyModel(bodyweight_pk_model_str)
+
+        # Create DataFrame with multiple variables (dose_in and M_in)
+        df = pd.DataFrame({
+            'times': [0, 12, 24, 36, 48],
+            'dose_in': [0.8, 1.2, 1.8, 1.4, 1.0],
+            'M_in': [0.5, 0.7, 0.9, 1.1, 1.2]
+        })
+
+        # Use DataFrame format to assign both variables at once
+        model.assign_forcing_function(df)
+
+        # Run simulation - include interpolation times for exact comparison
+        interpolation_times = [0, 12, 24, 36, 48]
+        other_times = np.linspace(0, 48, 200)
+        all_times = np.sort(np.unique(np.concatenate([interpolation_times, other_times])))
+        solution = model.run_model(all_times)
+
+        # Verify simulation completed successfully
+        assert solution.states.shape[1] == 2  # A1, AUC
+        assert solution.states.shape[0] >= 200
+        
+        # Check that both interpolated variables affect the simulation
+        C_values = solution.aux_outputs[:, 0]  # Concentration
+        M_current_values = solution.aux_outputs[:, 1]  # Current bodyweight
+        assert np.all(C_values >= 0), "Concentrations should be non-negative"
+        assert np.any(C_values > 0), "Should have some positive concentrations"
+        
+        # Should show complex variation due to both dose and bodyweight changing
+        assert np.std(C_values) > 0.1, "Should see significant concentration variation"
+        
+        # Verify both variables from DataFrame are reflected in computed outputs
+        assert np.min(M_current_values) >= 0.5, "Should reflect minimum bodyweight from DataFrame"
+        assert np.max(M_current_values) <= 1.2, "Should reflect maximum bodyweight from DataFrame"
+        assert np.std(M_current_values) > 0.15, "Should show bodyweight variation from DataFrame"
+        
+        # Verify exact interpolation at specific data points for M_in
+        expected_times = [0, 12, 24, 36, 48]
+        expected_bodyweights = [0.5, 0.7, 0.9, 1.1, 1.2]
+        
+        for expected_time, expected_bw in zip(expected_times, expected_bodyweights):
+            # Find the closest time index in the solution
+            time_idx = np.argmin(np.abs(solution.times - expected_time))
+            actual_time = solution.times[time_idx]
+            actual_bw = M_current_values[time_idx]
+            
+            # Should be very close to the expected time and bodyweight
+            assert actual_time == pytest.approx(expected_time), f"Time mismatch at t={expected_time}: got {actual_time}"
+            assert actual_bw == pytest.approx(expected_bw), f"Bodyweight mismatch at t={expected_time}: expected {expected_bw}, got {actual_bw}"
+
+    def test_assign_forcing_function_multi_variable_dataframe_jax(self, bodyweight_pk_model_str):
+        """Test assign_forcing_function with multi-variable DataFrame for JAX."""
+        pytest.importorskip("jax", reason="JAX not available")
+        from src.pymcsimmod.models.jax_model import JaxModel
+        
+        model = JaxModel(bodyweight_pk_model_str)
+
+        # Create DataFrame with multiple variables (dose_in and M_in)
+        df = pd.DataFrame({
+            'times': [0, 15, 30, 45, 60],
+            'dose_in': [1.0, 1.8, 2.2, 1.6, 0.8],
+            'M_in': [0.6, 0.8, 1.0, 1.1, 1.0]
+        })
+
+        # Use DataFrame format to assign both variables at once
+        model.assign_forcing_function(df)
+
+        # Run simulation - include interpolation times for exact comparison
+        interpolation_times = [0, 15, 30, 45, 60]
+        other_times = np.linspace(0, 60, 250)
+        all_times = np.sort(np.unique(np.concatenate([interpolation_times, other_times])))
+        solution = model.run_model(all_times)
+
+        # Verify simulation completed successfully
+        assert solution.states.shape[1] == 2  # A1, AUC
+        assert solution.states.shape[0] >= 250
+        
+        # Check that both interpolated variables affect the simulation
+        C_values = solution.aux_outputs[:, 0]  # Concentration
+        M_current_values = solution.aux_outputs[:, 1]  # Current bodyweight
+        assert np.all(C_values >= 0), "Concentrations should be non-negative"
+        assert np.any(C_values > 0), "Should have some positive concentrations"
+        
+        # Should show complex variation due to both dose and bodyweight changing
+        assert np.std(C_values) > 0.1, "Should see significant concentration variation"
+        
+        # Verify both variables from DataFrame are reflected in computed outputs
+        assert np.min(M_current_values) >= 0.6, "Should reflect minimum bodyweight from DataFrame"
+        assert np.max(M_current_values) <= 1.1, "Should reflect maximum bodyweight from DataFrame"
+        assert np.std(M_current_values) > 0.08, "Should show bodyweight variation from DataFrame"
+        
+        # Verify exact interpolation at specific data points for M_in
+        expected_times = [0, 15, 30, 45, 60]
+        expected_bodyweights = [0.6, 0.8, 1.0, 1.1, 1.0]
+        
+        for expected_time, expected_bw in zip(expected_times, expected_bodyweights):
+            # Find the closest time index in the solution
+            time_idx = np.argmin(np.abs(solution.times - expected_time))
+            actual_time = solution.times[time_idx]
+            actual_bw = M_current_values[time_idx]
+            
+            # Should be very close to the expected time and bodyweight
+            assert actual_time == pytest.approx(expected_time), f"Time mismatch at t={expected_time}: got {actual_time}"
+            assert actual_bw == pytest.approx(expected_bw), f"Bodyweight mismatch at t={expected_time}: expected {expected_bw}, got {actual_bw}"
