@@ -345,13 +345,14 @@ class UnifiedForcingFactory:
         return forcing.create_function(backend)
 
     @classmethod
-    def create_forcing_function(cls, func_name: str, backend: BackendType = BackendType.SCIPY, **kwargs):
+    def create_forcing_function(cls, func_name: str, backend: BackendType = BackendType.SCIPY, args=(), **kwargs):
         """
         Create a forcing function by name with the specified backend.
         
         Args:
             func_name: Name of the forcing function ('OnOff', 'PerDose', 'NDoses', 'InterpolatedForcing', etc.)
             backend: Backend to use ('scipy', 'jax', etc.)
+            args: Positional arguments for the forcing function (mainly for InterpolatedForcing)
             **kwargs: Parameters for the forcing function
             
         Returns:
@@ -396,6 +397,10 @@ class UnifiedForcingFactory:
             
         elif func_name == "InterpolatedForcing":
             # Use the new create_interpolated method
+            # If args are provided (times, values), convert to data_dict
+            if args and len(args) >= 2:
+                times, values = args[0], args[1]
+                kwargs['data_dict'] = {'time': times, 'value': values}
             return cls.create_interpolated(backend=backend, **kwargs)
             
         else:

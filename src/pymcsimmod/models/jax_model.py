@@ -130,7 +130,7 @@ class EqxModel(eqx.Module):
 
         # Use adaptive step size control with specified tolerances for better accuracy
         stepsize_controller = diffrax.PIDController(rtol=rtol, atol=atol)
-        saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t_end, len(times)))
+        saveat = diffrax.SaveAt(ts=jnp.array(times))
         sol = diffrax.diffeqsolve(
             ode_term,
             solver,

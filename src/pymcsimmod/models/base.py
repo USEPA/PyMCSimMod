@@ -5,6 +5,11 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal
 
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
+
 from ..config import BackendType
 from ..model import Approach, InitializeSection
 from ..parser import ModelParser
@@ -292,23 +297,34 @@ class OdeModel(ABC):
 
     def assign_forcing_function(self, input_name, forcing_function_name=None, *args, **kwargs):
         """
-        Assign a forcing function to an input variable, storing only the function name and parameters (not the factory or callable).
+        Assign a forcing function to an input variable, storing only the function name and parameters.
 
-        This method supports two usage patterns:
+        This method supports multiple usage patterns:
         1. Traditional forcing functions: assign_forcing_function('input', 'PerDose', t0=0, duration=1, period=24)
         2. Interpolated forcing: assign_forcing_function('input', times=[0,1,2], values=[10,20,30])
+        3. Dictionary interpolation: assign_forcing_function({'times': [0,1,2], 'input1': [10,20,30], 'input2': [5,10,15]})
+        4. DataFrame interpolation: assign_forcing_function(df) where df has 'times' column and variable columns
 
         Args:
-            input_name: Name of the input variable to assign the forcing function to.
-            forcing_function_name: Name of the forcing function ('PerDose', 'NDoses', etc.) OR
-                                 the 'times' parameter for interpolated forcing (for backwards compatibility).
-            *args, **kwargs: Parameters for the forcing function.
-                           For interpolated forcing, use times= and values= keyword arguments.
+            input_name: Name of input variable OR dictionary/DataFrame for multi-variable interpolation
+            forcing_function_name: Name of forcing function OR times parameter (backwards compatibility)
+            *args, **kwargs: Parameters for the forcing function
+
         Raises:
-            ValueError: If input_name is not in self.inputs or invalid parameters provided.
+            ValueError: If input validation fails or invalid parameters provided
         """
         if not hasattr(self, "forcing_functions"):
             self.forcing_functions = {}
+            
+        # Handle DataFrame and Dictionary multi-variable interpolation
+        if pd is not None and isinstance(input_name, pd.DataFrame):  # pandas DataFrame check
+            self._assign_from_dataframe(input_name)
+            return
+        elif isinstance(input_name, dict):  # Dictionary check  
+            self._assign_from_dictionary(input_name)
+            return
+            
+        # Original single-variable logic continues...
         if input_name not in self.inputs:
             raise ValueError(
                 f"'{input_name}' is not a valid input variable. Valid inputs: {self.inputs}"
@@ -320,18 +336,18 @@ class OdeModel(ABC):
             times = forcing_function_name
         values = kwargs.get("values")
 
-        if times is not None and values is not None:
-            # This is interpolated forcing
-            # Remove times and values from kwargs if they exist
-            interp_kwargs = kwargs.copy()
-            interp_kwargs.pop("times", None)
-            interp_kwargs.pop("values", None)
+        # Check for new format: times + variable name in kwargs (e.g., times=..., M_in=...)
+        if times is not None and values is None and input_name in kwargs:
+            # This is the new dictionary format: times + variable arrays
+            temp_dict = {'times': times, input_name: kwargs[input_name]}
+            self._assign_from_dictionary(temp_dict)
+            return
 
-            self.forcing_functions[input_name] = {
-                "function": "InterpolatedForcing",
-                "args": (times, values),
-                "kwargs": interp_kwargs,
-            }
+        if times is not None and values is not None:
+            # This is interpolated forcing - create dictionary and reuse existing logic
+            temp_dict = {'times': times, input_name: values}
+            self._assign_from_dictionary(temp_dict)
+            return
         elif times is not None and values is None:
             raise ValueError("Both 'times' and 'values' must be provided for interpolated forcing")
         elif forcing_function_name is None:
@@ -343,6 +359,50 @@ class OdeModel(ABC):
                 "args": args,
                 "kwargs": kwargs,
             }
+
+    def _assign_from_dataframe(self, df):
+        """Handle DataFrame interpolation assignment."""
+        if 'times' not in df.columns:
+            raise ValueError("DataFrame must contain a 'times' column")
+        
+        times = df['times'].tolist()
+        
+        for col in df.columns:
+            if col != 'times':
+                if col not in self.inputs:
+                    raise ValueError(f"'{col}' is not a valid input variable. Valid inputs: {self.inputs}")
+                
+                values = df[col].tolist()
+                
+                if len(values) != len(times):
+                    raise ValueError(f"Length mismatch: times has {len(times)} values, {col} has {len(values)} values")
+                
+                self.forcing_functions[col] = {
+                    "function": "InterpolatedForcing", 
+                    "args": (),
+                    "kwargs": {'data_dict': {'time': times, 'value': values}},
+                }
+
+    def _assign_from_dictionary(self, data_dict):
+        """Handle dictionary interpolation assignment."""
+        if 'times' not in data_dict:
+            raise ValueError("Dictionary must contain a 'times' key")
+            
+        times = data_dict['times']
+        
+        for var_name, values in data_dict.items():
+            if var_name != 'times':
+                if var_name not in self.inputs:
+                    raise ValueError(f"'{var_name}' is not a valid input variable. Valid inputs: {self.inputs}")
+                    
+                if len(values) != len(times):
+                    raise ValueError(f"Length mismatch: times has {len(times)} values, {var_name} has {len(values)} values")
+                    
+                self.forcing_functions[var_name] = {
+                    "function": "InterpolatedForcing",
+                    "args": (), 
+                    "kwargs": {'data_dict': {'time': times, 'value': values}},
+                }
 
     def extract_switch_times(self, forcing_functions, t_start, t_end):
         """

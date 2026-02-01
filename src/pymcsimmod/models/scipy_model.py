@@ -58,7 +58,7 @@ class ScipyModel(OdeModel):
                 
                 # Use unified forcing function factory for all forcing functions
                 func = UnifiedForcingFactory.create_forcing_function(
-                    func_name, backend=self.backend, **kwargs
+                    func_name, backend=self.backend, args=args, **kwargs
                 )
                 forcing_values[input_name] = func(t)
             else: # pragma: no cover
