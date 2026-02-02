@@ -297,18 +297,31 @@ class OdeModel(ABC):
 
     def assign_forcing_function(self, input_name, forcing_function_name=None, *args, **kwargs):
         """
-        Assign a forcing function to an input variable, storing only the function name and parameters.
+        Assign a forcing function to an input variable with consistent API.
 
-        This method supports multiple usage patterns:
-        1. Traditional forcing functions: assign_forcing_function('input', 'PerDose', t0=0, duration=1, period=24)
-        2. Interpolated forcing: assign_forcing_function('input', times=[0,1,2], values=[10,20,30])
-        3. Dictionary interpolation: assign_forcing_function({'times': [0,1,2], 'input1': [10,20,30], 'input2': [5,10,15]})
-        4. DataFrame interpolation: assign_forcing_function(df) where df has 'times' column and variable columns
+        Standard API:
+            model.assign_forcing_function(var, forcing_type, **kwargs)
+            
+        Examples:
+            # Traditional forcing functions
+            model.assign_forcing_function('input', 'PerDose', t0=0, duration=1, period=24)
+            model.assign_forcing_function('input', 'NDoses', t0_list=[0,24,48], duration=1)
+            model.assign_forcing_function('input', 'OnOff', t0=0, t1=10)
+            
+            # Interpolated forcing
+            model.assign_forcing_function('input', 'Interpolate', times=[0,1,2], values=[10,20,30])
+            model.assign_forcing_function('input', 'Interpolate', dataframe=df)
+            model.assign_forcing_function('input', 'Interpolate', data_dict={'time': [0,1,2], 'value': [10,20,30]})
+            
+        Legacy support (deprecated):
+            - DataFrame/dict as first argument for multi-variable interpolation
+            - Times array as second argument for backward compatibility
 
         Args:
-            input_name: Name of input variable OR dictionary/DataFrame for multi-variable interpolation
-            forcing_function_name: Name of forcing function OR times parameter (backwards compatibility)
-            *args, **kwargs: Parameters for the forcing function
+            input_name: Name of input variable OR dictionary/DataFrame (legacy)
+            forcing_function_name: Name of forcing function ('PerDose', 'NDoses', 'OnOff', 'Interpolate', etc.)
+            *args: Positional arguments (legacy support)
+            **kwargs: Parameters for the forcing function
 
         Raises:
             ValueError: If input validation fails or invalid parameters provided
@@ -316,93 +329,101 @@ class OdeModel(ABC):
         if not hasattr(self, "forcing_functions"):
             self.forcing_functions = {}
             
-        # Handle DataFrame and Dictionary multi-variable interpolation
-        if pd is not None and isinstance(input_name, pd.DataFrame):  # pandas DataFrame check
-            self._assign_from_dataframe(input_name)
-            return
-        elif isinstance(input_name, dict):  # Dictionary check  
-            self._assign_from_dictionary(input_name)
-            return
+        # Handle unsupported DataFrame multi-variable interpolation
+        if pd is not None and isinstance(input_name, pd.DataFrame):
+            raise ValueError(
+                "Passing DataFrame as first argument is not supported. Use: "
+                "assign_forcing_function(var, 'Interpolate', dataframe=df) for each variable"
+            )
             
-        # Original single-variable logic continues...
+        # Handle unsupported dictionary multi-variable interpolation
+        elif isinstance(input_name, dict):
+            raise ValueError(
+                "Passing dictionary as first argument is not supported. Use: "
+                "assign_forcing_function(var, 'Interpolate', data_dict=data) for each variable"
+            )
+            
+        # Validate input variable name
         if input_name not in self.inputs:
             raise ValueError(
                 f"'{input_name}' is not a valid input variable. Valid inputs: {self.inputs}"
             )
 
-        # Check if this is interpolated forcing (times and values provided)
-        times = kwargs.get("times")
-        if times is None and isinstance(forcing_function_name, list | tuple):
-            times = forcing_function_name
-        values = kwargs.get("values")
-
-        # Check for new format: times + variable name in kwargs (e.g., times=..., M_in=...)
-        if times is not None and values is None and input_name in kwargs:
-            # This is the new dictionary format: times + variable arrays
-            temp_dict = {'times': times, input_name: kwargs[input_name]}
-            self._assign_from_dictionary(temp_dict)
-            return
-
-        if times is not None and values is not None:
-            # This is interpolated forcing - create dictionary and reuse existing logic
-            temp_dict = {'times': times, input_name: values}
-            self._assign_from_dictionary(temp_dict)
-            return
-        elif times is not None and values is None:
-            raise ValueError("Both 'times' and 'values' must be provided for interpolated forcing")
-        elif forcing_function_name is None:
-            raise ValueError("Either forcing_function_name or times/values must be provided")
-        else:
-            # Traditional forcing function
-            self.forcing_functions[input_name] = {
-                "function": forcing_function_name,
-                "args": args,
-                "kwargs": kwargs,
-            }
-
-    def _assign_from_dataframe(self, df):
-        """Handle DataFrame interpolation assignment."""
-        if 'times' not in df.columns:
-            raise ValueError("DataFrame must contain a 'times' column")
-        
-        times = df['times'].tolist()
-        
-        for col in df.columns:
-            if col != 'times':
-                if col not in self.inputs:
-                    raise ValueError(f"'{col}' is not a valid input variable. Valid inputs: {self.inputs}")
-                
-                values = df[col].tolist()
-                
-                if len(values) != len(times):
-                    raise ValueError(f"Length mismatch: times has {len(times)} values, {col} has {len(values)} values")
-                
-                self.forcing_functions[col] = {
-                    "function": "InterpolatedForcing", 
-                    "args": (),
-                    "kwargs": {'data_dict': {'time': times, 'value': values}},
-                }
-
-    def _assign_from_dictionary(self, data_dict):
-        """Handle dictionary interpolation assignment."""
-        if 'times' not in data_dict:
-            raise ValueError("Dictionary must contain a 'times' key")
+        # Handle unsupported times/values patterns
+        if (
+            forcing_function_name is not None 
+            and isinstance(forcing_function_name, (list, tuple))
+            and 'values' in kwargs
+        ):
+            raise ValueError(
+                "Passing times as second argument is not supported. Use: "
+                "assign_forcing_function(var, 'Interpolate', times=times, values=values)"
+            )
             
-        times = data_dict['times']
+        # Handle unsupported times in kwargs with variable name
+        elif 'times' in kwargs and input_name in kwargs:
+            raise ValueError(
+                "Using variable name in kwargs is not supported. Use: "
+                "assign_forcing_function(var, 'Interpolate', times=times, values=values)"
+            )
+            
+        # Require forcing function name
+        if forcing_function_name is None:
+            raise ValueError(
+                "Forcing function type must be specified. Available types: "
+                "'OnOff', 'PerDose', 'NDoses', 'Interpolate', 'ZeroFunc', 'ConstFunc'"
+            )
+
+        # Store the forcing function specification
+        self.forcing_functions[input_name] = {
+            "function": forcing_function_name,
+            "args": args,
+            "kwargs": kwargs,
+        }
+
+    def _create_forcing_functions_for_backend(self, backend: BackendType = None):
+        """
+        Create actual forcing functions for the specified backend from stored specifications.
         
-        for var_name, values in data_dict.items():
-            if var_name != 'times':
-                if var_name not in self.inputs:
-                    raise ValueError(f"'{var_name}' is not a valid input variable. Valid inputs: {self.inputs}")
+        This method is compatible with both ScipyModel and JAXModel implementations:
+        - ScipyModel: Can use this for batch compilation or compile on-demand
+        - JAXModel: Can use this in EqxModel.compile_forcing_functions() for batch compilation
+        
+        Args:
+            backend: Backend type to use for creating forcing functions.
+                    If None, uses the model's default backend.
                     
-                if len(values) != len(times):
-                    raise ValueError(f"Length mismatch: times has {len(times)} values, {var_name} has {len(values)} values")
-                    
-                self.forcing_functions[var_name] = {
-                    "function": "InterpolatedForcing",
-                    "args": (), 
-                    "kwargs": {'data_dict': {'time': times, 'value': values}},
-                }
+        Returns:
+            Dictionary mapping input names to compiled forcing functions.
+            For JAX backend, all functions are JIT-compiled and ready for use.
+        """
+        from ..forcing.unified import UnifiedForcingFactory
+        
+        if backend is None:
+            backend = self.backend if hasattr(self, 'backend') else BackendType.SCIPY
+            
+        compiled_functions = {}
+        
+        for input_name, ff_spec in self.forcing_functions.items():
+            # Use duck typing approach compatible with JAX equinox modules
+            # Check for dict-like interface (same as JAXModel does)
+            if hasattr(ff_spec, "get") and hasattr(ff_spec, "__getitem__") and "function" in ff_spec:
+                func_name = ff_spec["function"]
+                args = ff_spec.get("args", ())
+                kwargs = ff_spec.get("kwargs", {})
+                
+                # Create backend-specific forcing function
+                # For JAX: will be JIT-compiled and ready for use
+                # For SciPy: will be a regular callable
+                compiled_functions[input_name] = UnifiedForcingFactory.create_forcing_function(
+                    func_name, backend, args, **kwargs
+                )
+            else:
+                # Already a compiled function or other callable
+                # This handles both legacy format and pre-compiled functions
+                compiled_functions[input_name] = ff_spec
+                
+        return compiled_functions
 
     def extract_switch_times(self, forcing_functions, t_start, t_end):
         """
@@ -455,9 +476,24 @@ class OdeModel(ABC):
                         switch_times.add(t0)
                     if t1 >= t_start and t1 <= t_end:
                         switch_times.add(t1)
-                elif func == "InterpolatedForcing":
-                    # For interpolated forcing, add the data time points as switch times
-                    times_data = ff["args"][0] if len(ff["args"]) > 0 else []
+                elif func in ["InterpolatedForcing", "Interpolate"]:
+                    # For interpolated forcing, extract times from different data formats
+                    times_data = []
+                    
+                    # Check args for times array (legacy format)
+                    if len(ff.get("args", [])) > 0:
+                        times_data = ff["args"][0]
+                    # Check kwargs for various time data formats
+                    elif "data_dict" in kwargs and "time" in kwargs["data_dict"]:
+                        times_data = kwargs["data_dict"]["time"]
+                    elif "times" in kwargs:
+                        times_data = kwargs["times"]
+                    elif "dataframe" in kwargs:
+                        df = kwargs["dataframe"]
+                        time_col = kwargs.get("time_col", "time")
+                        if hasattr(df, 'columns') and time_col in df.columns:
+                            times_data = df[time_col].tolist()
+                    
                     for t in times_data:
                         if t >= t_start and t <= t_end:
                             switch_times.add(t)

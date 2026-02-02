@@ -226,16 +226,27 @@ class UnifiedForcingFactory:
                 t = backend_impl.asarray(t)
                 t1_arr = t0_arr + duration
                 
-                # For JAX, use broadcasting with expanded dimensions
-                t_expanded = t[..., None]  # Shape: (N, 1)
-                t0_expanded = t0_arr[None, :]  # Shape: (1, M)
-                t1_expanded = t1_arr[None, :]  # Shape: (1, M)
+                # Check if input is scalar
+                is_scalar_input = t.ndim == 0
+                
+                if is_scalar_input:
+                    # For scalar input, calculate directly and return scalar
+                    dose_values = (
+                        backend_impl.tanh(s * (t - t0_arr)) - backend_impl.tanh(s * (t - t1_arr))
+                    ) / 2
+                    # Sum over the dose array to get scalar result (0-dimensional array)
+                    return backend_impl.sum(dose_values)
+                else:
+                    # For array input, use broadcasting with expanded dimensions
+                    t_expanded = t[..., None]  # Shape: (N, 1)
+                    t0_expanded = t0_arr[None, :]  # Shape: (1, M)
+                    t1_expanded = t1_arr[None, :]  # Shape: (1, M)
 
-                dose_values = (
-                    backend_impl.tanh(s * (t_expanded - t0_expanded))
-                    - backend_impl.tanh(s * (t_expanded - t1_expanded))
-                ) / 2
-                return backend_impl.sum(dose_values, axis=-1)
+                    dose_values = (
+                        backend_impl.tanh(s * (t_expanded - t0_expanded))
+                        - backend_impl.tanh(s * (t_expanded - t1_expanded))
+                    ) / 2
+                    return backend_impl.sum(dose_values, axis=-1)
         else:
             # Scipy/NumPy implementation with scalar/array handling
             def ndoses_func(t):
@@ -395,16 +406,20 @@ class UnifiedForcingFactory:
                 raise ValueError(f"ConstFunc forcing function requires 'value' parameter")
             return cls.create_constantfunc(value, backend)
             
-        elif func_name == "InterpolatedForcing":
+        elif func_name == "InterpolatedForcing" or func_name == "Interpolate":
             # Use the new create_interpolated method
             # If args are provided (times, values), convert to data_dict
             if args and len(args) >= 2:
                 times, values = args[0], args[1]
                 kwargs['data_dict'] = {'time': times, 'value': values}
+            # Handle times/values in kwargs for interpolation
+            elif 'times' in kwargs and 'values' in kwargs:
+                times, values = kwargs.pop('times'), kwargs.pop('values')
+                kwargs['data_dict'] = {'time': times, 'value': values}
             return cls.create_interpolated(backend=backend, **kwargs)
             
         else:
-            raise ValueError(f"Unknown forcing function type: '{func_name}'. Available: OnOff, PerDose, NDoses, ZeroFunc, ConstFunc, InterpolatedForcing")
+            raise ValueError(f"Unknown forcing function type: '{func_name}'. Available: OnOff, PerDose, NDoses, ZeroFunc, ConstFunc, InterpolatedForcing, Interpolate")
 
     @classmethod
     def _get_backend(cls, backend: BackendType) -> ForcingBackend:
