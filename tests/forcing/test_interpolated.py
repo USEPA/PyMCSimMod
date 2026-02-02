@@ -307,19 +307,19 @@ class TestInterpolatedForcingCore:
         model = ScipyModel(limited_inputs_model_str)
         
         # Should work for input variable
-        model.assign_forcing_function("dose_in", times=[0, 1, 2], dose_in=[1, 2, 1])
+        model.assign_forcing_function("dose_in", "Interpolate", times=[0, 1, 2], values=[1, 2, 1])
         
         # Should reject state variable
         with pytest.raises(ValueError, match="'A1' is not a valid input variable"):
-            model.assign_forcing_function("A1", times=[0, 1, 2], A1=[1, 2, 1])
+            model.assign_forcing_function("A1", "Interpolate", times=[0, 1, 2], values=[1, 2, 1])
         
         # Should reject output variable  
         with pytest.raises(ValueError, match="'C1' is not a valid input variable"):
-            model.assign_forcing_function("C1", times=[0, 1, 2], C1=[1, 2, 1])
+            model.assign_forcing_function("C1", "Interpolate", times=[0, 1, 2], values=[1, 2, 1])
         
         # Should reject non-existent variable
         with pytest.raises(ValueError, match="'non_existent' is not a valid input variable"):
-            model.assign_forcing_function("non_existent", times=[0, 1, 2], non_existent=[1, 2, 1])
+            model.assign_forcing_function("non_existent", "Interpolate", times=[0, 1, 2], values=[1, 2, 1])
 
 
 class TestInterpolatedForcingScenarios:
@@ -750,7 +750,7 @@ class TestInterpolatedForcingIntegration:
         
         error_message = str(exc_info.value)
         assert "InterpolatedForcing" in error_message
-        assert "Available: OnOff, PerDose, NDoses, ZeroFunc, ConstFunc, InterpolatedForcing" in error_message
+        assert "Available: OnOff, PerDose, NDoses, ZeroFunc, ConstFunc, InterpolatedForcing, Interpolate" in error_message
 
 
 class TestAssignForcingFunctionEnhanced:
@@ -770,14 +770,11 @@ class TestAssignForcingFunctionEnhanced:
         # Test dictionary format with times and variable arrays
         times_data = [0, 12, 24, 48, 72]
         bodyweight_data = [0.5, 0.6, 0.7, 0.9, 1.0]
-        dose_data = [0.5, 1.0, 1.5, 1.0, 0.5] if backend_name == "jax" else [1.0] * 5
+        dose_data = [0.5, 1.0, 1.5, 1.0, 0.5]
 
-        # Use the new dictionary format
-        model.assign_forcing_function("M_in", times=times_data, M_in=bodyweight_data)
-        if backend_name == "jax":
-            model.assign_forcing_function("dose_in", times=times_data, dose_in=dose_data)
-        else:
-            model.assign_forcing_function("dose_in", "ConstFunc", value=1.0)
+        # Use the new consistent API format
+        model.assign_forcing_function("M_in", "Interpolate", times=times_data, values=bodyweight_data)
+        model.assign_forcing_function("dose_in", "Interpolate", times=times_data, values=dose_data)
 
         # Run simulation with exact times for verification
         solution = model.run_model(times_data)
@@ -811,10 +808,10 @@ class TestAssignForcingFunctionEnhanced:
         df = pd.DataFrame({
             'times': [0, 24, 48, 72, 96],
             'M_in': [0.4, 0.6, 0.8, 1.0, 1.1]
-        })
-
-        # Use the new DataFrame format (auto-detects InterpolatedForcing and variable names)
-        model.assign_forcing_function(df)
+        })  
+        
+        # Use the new consistent API with DataFrame data
+        model.assign_forcing_function("M_in", "Interpolate", dataframe=df, time_col="times", value_col="M_in")
         
         # Set constant dose
         model.assign_forcing_function("dose_in", "ConstFunc", value=2.0)
@@ -905,9 +902,9 @@ class TestAssignForcingFunctionEnhanced:
         bodyweight_data = [0.5, 0.7, 0.9, 1.1]
         dose_data = [1.0, 1.5, 2.0, 1.0]
 
-        # Assign both variables using dictionary format (auto-detects InterpolatedForcing)
-        model.assign_forcing_function("M_in", times=times_data, M_in=bodyweight_data)
-        model.assign_forcing_function("dose_in", times=times_data, dose_in=dose_data)
+        # Assign both variables using new consistent API
+        model.assign_forcing_function("M_in", "Interpolate", times=times_data, values=bodyweight_data)
+        model.assign_forcing_function("dose_in", "Interpolate", times=times_data, values=dose_data)
 
         # Run simulation - include interpolation times for exact comparison
         interpolation_times = [0, 12, 24, 48, 72]
@@ -958,9 +955,9 @@ class TestAssignForcingFunctionEnhanced:
         bodyweight_data = [0.6, 0.8, 1.0, 1.1, 1.0]
         dose_data = [0.8, 1.2, 1.8, 1.4, 0.6]
 
-        # Assign both variables using dictionary format (auto-detects InterpolatedForcing)
-        model.assign_forcing_function("M_in", times=times_data, M_in=bodyweight_data)
-        model.assign_forcing_function("dose_in", times=times_data, dose_in=dose_data)
+        # Assign both variables using new consistent API
+        model.assign_forcing_function("M_in", "Interpolate", times=times_data, values=bodyweight_data)
+        model.assign_forcing_function("dose_in", "Interpolate", times=times_data, values=dose_data)
 
         # Verify exact interpolation at specific data points for M_in
         expected_times = [0, 18, 36, 54, 72]  # Use the actual interpolation times
@@ -1014,9 +1011,9 @@ class TestAssignForcingFunctionEnhanced:
         with pytest.raises(ValueError, match="DataFrame must contain a 'times' column"):
             model.assign_forcing_function(df_bad)
 
-        # Test mismatched array lengths in dictionary format
-        with pytest.raises(ValueError, match="Length mismatch"):
-            model.assign_forcing_function("M_in", times=[0, 1, 2], M_in=[0.5, 0.6])  # Different lengths
+        # Test mismatched array lengths - now should raise error about unsupported format
+        with pytest.raises(ValueError, match="Using variable name in kwargs is not supported"):
+            model.assign_forcing_function("M_in", times=[0, 1, 2], M_in=[0.5, 0.6])  # Legacy format
 
     def test_assign_forcing_function_backward_compatibility_scipy(self, bodyweight_pk_model_str):
         """Test that enhanced assign_forcing_function maintains backward compatibility for SciPy."""
@@ -1086,14 +1083,14 @@ class TestAssignForcingFunctionEnhanced:
 
         # SciPy model with dictionary format (auto-detects InterpolatedForcing)
         scipy_model = ScipyModel(bodyweight_pk_model_str)
-        scipy_model.assign_forcing_function("M_in", times=times_data, M_in=bodyweight_data)
-        scipy_model.assign_forcing_function("dose_in", times=times_data, dose_in=dose_data)
+        scipy_model.assign_forcing_function("M_in", "Interpolate", times=times_data, values=bodyweight_data)
+        scipy_model.assign_forcing_function("dose_in", "Interpolate", times=times_data, values=dose_data)
 
         # JAX model with DataFrame format (auto-detects InterpolatedForcing and variable names)
         jax_model = JaxModel(bodyweight_pk_model_str)
         df = pd.DataFrame({'times': times_data, 'M_in': bodyweight_data})
-        jax_model.assign_forcing_function(df)
-        jax_model.assign_forcing_function("dose_in", times=times_data, dose_in=dose_data)
+        jax_model.assign_forcing_function("M_in", "Interpolate", dataframe=df, time_col="times", value_col="M_in")
+        jax_model.assign_forcing_function("dose_in", "Interpolate", times=times_data, values=dose_data)
 
         # Run both simulations
         times = np.linspace(0, 36, 150)
