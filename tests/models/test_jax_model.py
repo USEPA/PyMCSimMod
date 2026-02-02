@@ -1096,6 +1096,7 @@ class TestJaxCompatibility:
         with pytest.raises(NotImplementedError, match="Discrete events are not yet supported"):
             model.run_model(times)
 
+
 def test_reset_to_defaults_jax():
     """Test reset_to_defaults functionality for both parameters and Y0 with JAX model."""
     model_str = """
@@ -1251,7 +1252,7 @@ class TestJaxModelErrorHandling:
         # JAX requires monotonic times, so this should fail
         with pytest.raises(Exception) as excinfo:
             model.run_model(times)
-        
+
         # Should get an error about monotonic times
         assert "increasing or decreasing" in str(excinfo.value)
 
