@@ -409,3 +409,74 @@ def limited_inputs_model_str() -> str:
 
     End.
     """
+
+
+@pytest.fixture(scope="session")
+def pk1_model_str() -> str:
+    """PK1 model string for notebook scenarios testing with oral/IV dosing and bodyweight."""
+    return """
+    States = {
+        A0,     # Amount in exposure compartment (mg)
+        A1,     # Amount in central compartment (mg)
+        A2,     # Amount cleared (mg)
+        AUC     # Area under concentration curve (mg*h/L)
+    };
+
+    Inputs = {
+        OralExp,    # Oral exposure input
+        IVExp,      # IV exposure input
+        M_in        # Body mass input (kg)
+    };
+
+    Outputs = {
+        C,          # Concentration (mg/L)
+        Atot,       # Total amount (mg)
+        C_mg,       # Concentration in mg/L
+        C_umol      # Concentration in umol/L
+    };
+
+    # Parameters
+    Vdc = 0.1;      # Volume distribution constant (L/kg)
+    k01 = 1;        # Absorption rate constant (/h)
+    k12 = 0.5;      # Clearance rate constant (/h)
+    MW = 150;       # Molecular weight (g/mol)
+
+    # Initial conditions
+    A0_init = 0;
+    A1_init = 0;
+    A2_init = 0;
+    AUC_init = 0;
+
+    # Dosing parameters
+    OralDose = 0;
+    OralDur = 0.01;
+    IVDose = 0;
+    IVDur = 0.01;
+
+    Initialize {
+        A0 = A0_init;
+        A1 = A1_init;
+        A2 = A2_init;
+        AUC = AUC_init;
+    }
+
+    Dynamics {
+        M = M_in;
+        Vd = Vdc * M;
+        C = A1 / Vd;
+        ODose = OralDose / OralDur;
+
+        dt(A0) = OralExp * ODose - k01 * A0;
+        dt(A1) = IVExp * ODose + k01 * A0 - k12 * A1;
+        dt(A2) = k12 * A1;
+        dt(AUC) = C;
+    }
+
+    CalcOutputs {
+        C_mg = C;
+        C_umol = C / (MW * 1000);
+        Atot = A0 + A1 + A2;
+    }
+
+    End.
+    """
