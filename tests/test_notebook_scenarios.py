@@ -312,11 +312,9 @@ class TestComplexDiscreteEventsWorkflows:
         # Verify events were added
         assert len(model.events) == len(events_df)
 
-        # Run simulation with consistent warning suppression
+        # Run simulation expecting warnings about event handling
         times = np.linspace(0, 48, 1000)
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", message="Not all event times were in output times")
-            warnings.filterwarnings("ignore", message="Some time steps were very close to events")
+        with pytest.warns():  # Expect warnings about event time handling
             solution = model.run_model(times)
 
         # Check that events occurred using standardized detection
@@ -355,10 +353,9 @@ class TestComplexDiscreteEventsWorkflows:
         for dose_time in dose_times:
             model.add_event(time=dose_time, state_var="A0", value=25.0, method="add")
 
-        # Run simulation with consistent warning suppression
+        # Run simulation expecting warnings about event handling
         times = np.linspace(0, 21 * 24, 2000)  # 21 days, fine resolution
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", message="Not all event times were in output times")
+        with pytest.warns():  # Expect warnings about event time handling
             solution = model.run_model(times)
 
         # Verify we have the expected number of events
@@ -428,10 +425,9 @@ class TestComplexDiscreteEventsWorkflows:
             time=3.0, state_var="A1", value=0.5, method="multiply"
         )  # A1 = 75 * 0.5 = 37.5
 
-        # Run simulation with consistent warning suppression
+        # Run simulation expecting warnings about event handling
         times = np.linspace(0, 4, 400)
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", message="Not all event times were in output times")
+        with pytest.warns():  # Expect warnings about event time handling
             solution = model.run_model(times)
 
         A1_values = solution.states[:, 1]

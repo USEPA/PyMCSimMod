@@ -463,7 +463,7 @@ class TestScipyModelDiscreteEvents:
         model.add_event(time=1.8, state_var="A", value=10.0, method="replace")
         
         # Expect warning about automatically including event time
-        with pytest.warns(UserWarning, match="Not all event times were in output times"):
+        with pytest.warns(UserWarning, match="Event times.*not found in time grid"):
             result = model.run_model(times)
         assert isinstance(result, ComputedModel)
         
@@ -482,7 +482,7 @@ class TestScipyModelDiscreteEvents:
         model.add_event(time=2.5, state_var="A", value=12.0, method="replace")
         
         # Expect warning about automatically including event time
-        with pytest.warns(UserWarning, match="Not all event times were in output times"):
+        with pytest.warns(UserWarning, match="Event times.*not found in time grid"):
             result = model.run_model(original_times)
         assert isinstance(result, ComputedModel)
         
@@ -506,7 +506,7 @@ class TestScipyModelDiscreteEvents:
         model.assign_forcing_function("dose", "OnOff", t0=1.0, t1=3.0, s=2.0)
         
         # Expect warning about automatically including event time
-        with pytest.warns(UserWarning, match="Not all event times were in output times"):
+        with pytest.warns(UserWarning, match="Event times.*not found in time grid"):
             result = model.run_model(times)
         assert isinstance(result, ComputedModel)
         assert len(result.times) >= len(times)

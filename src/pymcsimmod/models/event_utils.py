@@ -114,8 +114,14 @@ def check_events(
             missing_events.append(et)
 
     if missing_events:
+        # Provide specific guidance based on time range
+        time_start, time_end = float(np.min(times)), float(np.max(times))
+        step_size = (time_end - time_start) / (len(times) - 1)
+        
         warnings.warn(
-            f"Not all event times were in output times, automatically including: {missing_events}",
+            f"Event times {missing_events} not found in time grid - automatically adding them to ensure accurate event handling. "
+            f"To avoid this message, consider using: np.arange({time_start}, {time_end + step_size:.3f}, {step_size:.3f}) "
+            f"or explicitly include event times in your time array.",
             stacklevel=2,
         )
 
@@ -123,8 +129,10 @@ def check_events(
         unique_times = clean_event_times(times, event_times)
 
         if len(unique_times) < len(times):
+            removed_count = len(times) - len(unique_times)
             warnings.warn(
-                "Some time steps were very close to events - only the event times are used in these cases.",
+                f"Removed {removed_count} time points that were within numerical precision of event times "
+                f"to avoid numerical issues. This is normal behavior following deSolve's event handling.",
                 stacklevel=2,
             )
 
