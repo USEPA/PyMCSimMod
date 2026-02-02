@@ -126,7 +126,7 @@ class EqxModel(eqx.Module):
         ode_term = diffrax.ODETerm(ode_rhs)
         # Use provided solver or default to Dopri8
         if solver is None:
-            solver = diffrax.Dopri8()
+            solver = diffrax.Kvaerno5()
 
         # Use adaptive step size control with specified tolerances for better accuracy
         stepsize_controller = diffrax.PIDController(rtol=rtol, atol=atol)
