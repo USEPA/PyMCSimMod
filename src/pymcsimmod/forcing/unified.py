@@ -220,57 +220,16 @@ class UnifiedForcingFactory:
         t0_arr = backend_impl.asarray(t0_list)
         duration = float(duration)
 
-        if backend == BackendType.JAX:
-            # JAX-specific implementation with proper broadcasting
-            def ndoses_func(t):
-                t = backend_impl.asarray(t)
-                t1_arr = t0_arr + duration
-                
-                # Check if input is scalar
-                is_scalar_input = t.ndim == 0
-                
-                if is_scalar_input:
-                    # For scalar input, calculate directly and return scalar
-                    dose_values = (
-                        backend_impl.tanh(s * (t - t0_arr)) - backend_impl.tanh(s * (t - t1_arr))
-                    ) / 2
-                    # Sum over the dose array to get scalar result (0-dimensional array)
-                    return backend_impl.sum(dose_values)
-                else:
-                    # For array input, use broadcasting with expanded dimensions
-                    t_expanded = t[..., None]  # Shape: (N, 1)
-                    t0_expanded = t0_arr[None, :]  # Shape: (1, M)
-                    t1_expanded = t1_arr[None, :]  # Shape: (1, M)
-
-                    dose_values = (
-                        backend_impl.tanh(s * (t_expanded - t0_expanded))
-                        - backend_impl.tanh(s * (t_expanded - t1_expanded))
-                    ) / 2
-                    return backend_impl.sum(dose_values, axis=-1)
-        else:
-            # Scipy/NumPy implementation with scalar/array handling
-            def ndoses_func(t):
-                t = backend_impl.asarray(t)
-                t1_arr = t0_arr + duration
-
-                # For scipy/numpy, handle scalar and array inputs
-                if backend_impl.asarray(t).ndim == 0:
-                    # Scalar input
-                    dose_values = (
-                        backend_impl.tanh(s * (t - t0_arr)) - backend_impl.tanh(s * (t - t1_arr))
-                    ) / 2
-                else:
-                    # Array input - use broadcasting
-                    t_expanded = t[:, None]  # Shape: (N, 1)
-                    t0_expanded = t0_arr[None, :]  # Shape: (1, M)
-                    t1_expanded = t1_arr[None, :]  # Shape: (1, M)
-
-                    dose_values = (
-                        backend_impl.tanh(s * (t_expanded - t0_expanded))
-                        - backend_impl.tanh(s * (t_expanded - t1_expanded))
-                    ) / 2
-
-                return backend_impl.sum(dose_values, axis=-1)
+        def ndoses_func(t):
+            t = backend_impl.asarray(t)
+            t1_arr = t0_arr + duration
+            
+            # Use natural broadcasting - backends handle scalar/array automatically
+            dose_values = (
+                backend_impl.tanh(s * (t[..., None] - t0_arr)) - 
+                backend_impl.tanh(s * (t[..., None] - t1_arr))
+            ) / 2
+            return backend_impl.sum(dose_values, axis=-1)
 
         return backend_impl.compile_function(ndoses_func)
 

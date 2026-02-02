@@ -14,6 +14,7 @@ from src.pymcsimmod.forcing.unified import (
     create_perdose,
     create_zerofunc,
 )
+from src.pymcsimmod.models.scipy_model import ScipyModel
 
 
 class TestScipyForcingFunctions:
@@ -211,32 +212,73 @@ class TestJAXForcingFunctions:
         assert "Pjit" in func_type_name or "jit" in func_type_name.lower()
         
     def test_jax_array_compatibility(self, check_jax_available):
-        """Test with JAX arrays."""
+        """Test with various JAX array shapes and types."""
         import jax.numpy as jnp
         
         func = UnifiedForcingFactory.create_onoff(t0=1.0, t1=3.0, backend=BackendType.JAX)
         
-        # Test with JAX array
+        # Test with standard JAX array
         t_jax = jnp.array([0.5, 2.0, 4.0])
         results = func(t_jax)
-        
-        # Results should be JAX array
         assert hasattr(results, '__array__') or 'jax' in str(type(results))
         assert len(results) == 3
         
+        # Test with different JAX dtypes
+        t_float32 = jnp.array([0.5, 2.0, 4.0], dtype=jnp.float32)
+        results_f32 = func(t_float32)
+        assert len(results_f32) == 3
+        
+        # Test with large arrays (ODE solver-like)
+        t_large = jnp.linspace(0, 5, 1000)
+        results_large = func(t_large)
+        assert len(results_large) == 1000
+        
+        # Test with reshaped arrays (multi-dimensional)
+        t_2d = jnp.reshape(t_jax, (3, 1))
+        results_2d = func(t_2d)
+        assert results_2d.shape == (3, 1)
+        
+        # Test with broadcasted operations
+        t_broadcast = jnp.broadcast_to(jnp.array([2.0]), (5,))
+        results_broadcast = func(t_broadcast) 
+        assert len(results_broadcast) == 5
+        
     def test_jit_traceability(self, check_jax_available):
-        """Test functions work in JIT contexts."""
+        """Test functions work with advanced JAX transformations."""
         import jax
+        import jax.numpy as jnp
         
         func = UnifiedForcingFactory.create_onoff(t0=1.0, t1=3.0, backend=BackendType.JAX)
+        ndoses_func = UnifiedForcingFactory.create_ndoses(
+            t0_list=[1.0, 5.0], duration=1.0, backend=BackendType.JAX
+        )
         
-        # Should work within another JIT function
+        # Test nested JIT compilation
         @jax.jit
         def test_wrapper(t):
             return func(t) * 2.0
             
         result = test_wrapper(2.0)
         assert result > 1.8  # Should be close to 2.0
+        
+        # Test vmap (vectorization) compatibility
+        vmapped_func = jax.vmap(func)
+        vmap_input = jnp.array([0.5, 2.0, 4.0])
+        vmap_result = vmapped_func(vmap_input)
+        assert vmap_result.shape == (3,)
+        
+        # Test automatic differentiation compatibility
+        grad_func = jax.grad(lambda t: jnp.sum(func(t)))
+        grad_result = grad_func(2.0)
+        assert isinstance(grad_result, (int, float)) or hasattr(grad_result, '__array__')
+        
+        # Test function composition
+        @jax.jit
+        def composed_func(t):
+            return ndoses_func(t) * func(t) + 0.5
+            
+        composed_result = composed_func(jnp.array([1.5, 2.0]))
+        assert composed_result.shape == (2,)
         
     def test_all_function_types_jit_compiled(self, check_jax_available):
         """Test all function types are JIT compiled."""
@@ -253,42 +295,86 @@ class TestJAXForcingFunctions:
             assert "Pjit" in func_type_name or "jit" in func_type_name.lower()
             
     def test_ndoses_jax_broadcasting(self, check_jax_available):
-        """Test NDoses uses proper JAX broadcasting."""
+        """Test NDoses uses proper JAX broadcasting with ellipsis pattern."""
         import jax.numpy as jnp
         
         func = UnifiedForcingFactory.create_ndoses(
             t0_list=[1.0, 5.0, 10.0], duration=1.0, backend=BackendType.JAX
         )
         
-        # Test with both scalar and array inputs
+        # Test with scalar inputs
         scalar_result = func(1.5)
-        array_result = func(jnp.array([1.5, 5.5, 10.5]))
-        
-        # Should work without errors
         assert isinstance(scalar_result, (int, float)) or hasattr(scalar_result, '__array__')
-        assert len(array_result) == 3
+        
+        # Test with 1D array inputs
+        array_1d = jnp.array([1.5, 5.5, 10.5])
+        result_1d = func(array_1d)
+        assert len(result_1d) == 3
+        
+        # Test with 0D array inputs (from scalar operations)
+        array_0d = jnp.array(1.5)  # 0-dimensional array
+        result_0d = func(array_0d)
+        assert isinstance(result_0d, (int, float)) or hasattr(result_0d, '__array__')
+        
+        # Test with 2D array inputs (tests ellipsis broadcasting t[..., None])
+        array_2d = jnp.reshape(array_1d, (3, 1))
+        result_2d = func(array_2d)
+        assert result_2d.shape == (3, 1), f"Expected shape (3, 1), got {result_2d.shape}"
+        
+        # Test consistency: 1D and 2D should give same values (different shapes)
+        np.testing.assert_allclose(result_1d, result_2d.flatten(), rtol=1e-6)
         
     def test_performance_comparison(self, check_jax_available):
-        """Test performance after JIT compilation."""
-        import time
+        """Test cross-backend consistency with comprehensive array testing."""
         import jax.numpy as jnp
         
-        # Create functions
-        scipy_func = UnifiedForcingFactory.create_onoff(t0=1.0, t1=3.0, backend=BackendType.SCIPY)
-        jax_func = UnifiedForcingFactory.create_onoff(t0=1.0, t1=3.0, backend=BackendType.JAX)
+        # Test all function types for consistency
+        test_cases = [
+            ('onoff', {'t0': 1.0, 't1': 3.0}),
+            ('perdose', {'t0': 0.0, 'duration': 1.0, 'period': 4.0}),
+            ('ndoses', {'t0_list': [1.0, 5.0], 'duration': 1.0}),
+            ('constantfunc', {'val': 2.5}),
+            ('zerofunc', {})
+        ]
         
-        # Large array for testing
-        t_large = jnp.linspace(0, 10, 10000)
-        
-        # Warm up JAX function (trigger compilation)
-        _ = jax_func(t_large[:100])
-        
-        # Both should produce similar results (not testing speed, just correctness)
-        scipy_result = scipy_func(np.array([0.5, 2.0, 4.0]))
-        jax_result = jax_func(jnp.array([0.5, 2.0, 4.0]))
-        
-        # Check results are close
-        np.testing.assert_allclose(scipy_result, np.array(jax_result), rtol=1e-3, atol=1e-6)
+        for func_name, params in test_cases:
+            # Create functions with both backends
+            if func_name == 'onoff':
+                scipy_func = UnifiedForcingFactory.create_onoff(backend=BackendType.SCIPY, **params)
+                jax_func = UnifiedForcingFactory.create_onoff(backend=BackendType.JAX, **params)
+            elif func_name == 'perdose':
+                scipy_func = UnifiedForcingFactory.create_perdose(backend=BackendType.SCIPY, **params)
+                jax_func = UnifiedForcingFactory.create_perdose(backend=BackendType.JAX, **params)
+            elif func_name == 'ndoses':
+                scipy_func = UnifiedForcingFactory.create_ndoses(backend=BackendType.SCIPY, **params)
+                jax_func = UnifiedForcingFactory.create_ndoses(backend=BackendType.JAX, **params)
+            elif func_name == 'constantfunc':
+                scipy_func = UnifiedForcingFactory.create_constantfunc(backend=BackendType.SCIPY, **params)
+                jax_func = UnifiedForcingFactory.create_constantfunc(backend=BackendType.JAX, **params)
+            elif func_name == 'zerofunc':
+                scipy_func = UnifiedForcingFactory.create_zerofunc(backend=BackendType.SCIPY, **params)
+                jax_func = UnifiedForcingFactory.create_zerofunc(backend=BackendType.JAX, **params)
+            
+            # Warm up JAX function
+            _ = jax_func(1.0)
+            
+            # Test with various array types and shapes
+            test_arrays = [
+                np.array([0.5, 2.0, 4.0]),  # Standard 1D array
+                np.array([[1.5], [2.5]]),   # 2D array
+                np.linspace(0, 5, 100)      # Large array
+            ]
+            
+            for test_array in test_arrays:
+                scipy_result = scipy_func(test_array)
+                jax_result = jax_func(jnp.array(test_array))
+                
+                # Check results are close
+                np.testing.assert_allclose(
+                    scipy_result, np.array(jax_result), 
+                    rtol=1e-3, atol=1e-6,
+                    err_msg=f"Backend inconsistency for {func_name} with shape {test_array.shape}"
+                )
         
     def test_jax_backend_methods(self, check_jax_available):
         """Test JAXBackend class methods directly."""
@@ -323,6 +409,101 @@ class TestJAXForcingFunctions:
         assert float(result1) > 0.95   # During first dose
         assert abs(float(result2)) < 0.01  # Between doses
         assert float(result3) > 0.95   # During second dose
+
+    def test_jax_ode_solver_integration(self, check_jax_available, bodyweight_pk_model_str):
+        """Test forcing functions work correctly in actual JAX model ODE solver contexts."""
+        import jax.numpy as jnp
+        from pymcsimmod.models.jax_model import JaxModel
+        
+        # Test Case 1: Basic NDoses integration - simple, short duration
+        model = JaxModel(bodyweight_pk_model_str)
+        model.assign_forcing_function('dose_in', 'NDoses', t0_list=[0.0], duration=0.1)
+        model.assign_forcing_function('M_in', 'ConstFunc', value=1.0)
+        
+        # Run very short simulation to avoid solver issues
+        solution1 = model.run_model([0.0, 0.2, 0.5])
+        assert solution1.states.shape[1] == 2  # A1, AUC
+        assert solution1.states.shape[0] >= 3
+        assert np.all(solution1.states >= 0)  # Physically reasonable
+        
+        # Test Case 2: ConstFunc + OnOff (simple switching)
+        model2 = JaxModel(bodyweight_pk_model_str)
+        model2.assign_forcing_function('dose_in', 'ConstFunc', value=1.0)  # Constant dosing
+        model2.assign_forcing_function('M_in', 'OnOff', t0=0.1, t1=0.3)   # Switching bodyweight
+        
+        # Run short simulation
+        solution2 = model2.run_model([0.0, 0.15, 0.35, 0.5])
+        assert solution2.states.shape[1] == 2
+        assert solution2.states.shape[0] >= 4
+        
+        # Verify that OnOff switching is reflected in M_current
+        M_values = solution2.aux_outputs[:, 1]  # M_current from model
+        assert len(np.unique(M_values)) > 1, "M_current should show switching behavior"
+        
+        # Test Case 3: Interpolate forcing function
+        model3 = JaxModel(bodyweight_pk_model_str) 
+        model3.assign_forcing_function('dose_in', 'ConstFunc', value=0.5)
+        model3.assign_forcing_function('M_in', 'Interpolate', times=[0, 0.25, 0.5], values=[0.8, 1.0, 1.2])
+        
+        # Test interpolation works in ODE context
+        solution3 = model3.run_model([0.0, 0.125, 0.25, 0.375, 0.5])
+        assert solution3.states.shape[1] == 2
+        assert len(solution3.times) >= 5
+        
+        # Verify interpolated values are reasonable
+        M_values3 = solution3.aux_outputs[:, 1]
+        assert np.min(M_values3) >= 0.79  # Close to min value
+        assert np.max(M_values3) <= 1.21  # Close to max value
+        assert np.std(M_values3) > 0.05   # Shows variation
+        
+        # Test Case 4: Our optimized NDoses broadcasting in ODE context 
+        model4 = JaxModel(bodyweight_pk_model_str)
+        # Test with two doses to exercise the t[..., None] broadcasting pattern
+        model4.assign_forcing_function('dose_in', 'NDoses', t0_list=[0.0, 0.3], duration=0.05)
+        model4.assign_forcing_function('M_in', 'ConstFunc', value=1.0)
+        
+        # This specifically tests our ellipsis broadcasting in real ODE context
+        solution4 = model4.run_model([0.0, 0.15, 0.3, 0.45, 0.6])
+        assert solution4.states.shape[0] >= 5
+        
+        # Should see dose effects (non-zero concentrations)
+        C_values4 = solution4.aux_outputs[:, 0]
+        assert np.any(C_values4 > 0), "Should have concentrations from NDoses"
+        
+        # Test Case 5: Cross-backend consistency (very simplified)
+        
+        scipy_model = ScipyModel(bodyweight_pk_model_str)
+        scipy_model.assign_forcing_function('dose_in', 'NDoses', t0_list=[0.0], duration=0.1)
+        scipy_model.assign_forcing_function('M_in', 'ConstFunc', value=1.0)
+        
+        # Compare at simple time points
+        test_times = [0.0, 0.2, 0.5]
+        jax_solution = model.run_model(test_times)
+        scipy_solution = scipy_model.run_model(test_times)
+        
+        # Both should produce reasonable solutions
+        jax_conc = jax_solution.aux_outputs[:len(test_times), 0]
+        scipy_conc = scipy_solution.aux_outputs[:len(test_times), 0]
+        
+        assert np.all(jax_conc >= 0) and np.all(scipy_conc >= 0)
+        assert np.any(jax_conc > 0) and np.any(scipy_conc > 0)  # Both show dosing effects
+        
+        # Test Case 6: JAX array operations work throughout ODE solution
+        model5 = JaxModel(bodyweight_pk_model_str)
+        model5.assign_forcing_function('dose_in', 'OnOff', t0=0.1, t1=0.4)
+        model5.assign_forcing_function('M_in', 'ConstFunc', value=1.0)
+        
+        # Test with JAX arrays as input
+        jax_times = jnp.array([0.0, 0.2, 0.5])
+        solution5 = model5.run_model(jax_times)
+        
+        # Verify the solution is JAX-compatible 
+        assert hasattr(solution5.states, '__array__') or 'jax' in str(type(solution5.states))
+        assert solution5.states.shape[1] == 2
+        
+        # OnOff should create dosing effect
+        C_values5 = solution5.aux_outputs[:, 0]
+        assert np.any(C_values5 > 0), "OnOff dosing should create concentrations"
 
 
 class TestUnifiedForcingFactory:

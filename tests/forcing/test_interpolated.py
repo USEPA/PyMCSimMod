@@ -865,8 +865,8 @@ class TestAssignForcingFunctionEnhanced:
             'dose_in': [1.0, 2.0, 3.0, 2.0, 1.0]
         })
 
-        # Use the new DataFrame format (auto-detects InterpolatedForcing and variable names)
-        model.assign_forcing_function(df)
+        # Use the new consistent API with DataFrame format
+        model.assign_forcing_function("dose_in", "Interpolate", dataframe=df, time_col='times', value_col='dose_in')
         
         # Set constant bodyweight
         model.assign_forcing_function("M_in", "ConstFunc", value=0.7)
@@ -1002,13 +1002,13 @@ class TestAssignForcingFunctionEnhanced:
         
         model = ScipyModel(bodyweight_pk_model_str)
 
-        # Test missing 'times' key in dictionary format
-        with pytest.raises(ValueError, match="Either forcing_function_name or times/values must be provided"):
+        # Test missing forcing function type with just kwargs
+        with pytest.raises(ValueError, match="Forcing function type must be specified"):
             model.assign_forcing_function("M_in", M_in=[0.5, 0.6, 0.7])
 
-        # Test DataFrame with different approach - using the first argument
+        # Test DataFrame as first argument (now unsupported)
         df_bad = pd.DataFrame({'time': [0, 1, 2], 'value': [10, 20, 30]})
-        with pytest.raises(ValueError, match="DataFrame must contain a 'times' column"):
+        with pytest.raises(ValueError, match="Passing DataFrame as first argument is not supported"):
             model.assign_forcing_function(df_bad)
 
         # Test mismatched array lengths - now should raise error about unsupported format
@@ -1128,8 +1128,9 @@ class TestAssignForcingFunctionEnhanced:
             'M_in': [0.5, 0.7, 0.9, 1.1, 1.2]
         })
 
-        # Use DataFrame format to assign both variables at once
-        model.assign_forcing_function(df)
+        # Use consistent API to assign each variable separately
+        model.assign_forcing_function("dose_in", "Interpolate", dataframe=df, time_col='times', value_col='dose_in')
+        model.assign_forcing_function("M_in", "Interpolate", dataframe=df, time_col='times', value_col='M_in')
 
         # Run simulation - include interpolation times for exact comparison
         interpolation_times = [0, 12, 24, 36, 48]
@@ -1183,8 +1184,9 @@ class TestAssignForcingFunctionEnhanced:
             'M_in': [0.6, 0.8, 1.0, 1.1, 1.0]
         })
 
-        # Use DataFrame format to assign both variables at once
-        model.assign_forcing_function(df)
+        # Use consistent API to assign each variable separately
+        model.assign_forcing_function("dose_in", "Interpolate", dataframe=df, time_col='times', value_col='dose_in')
+        model.assign_forcing_function("M_in", "Interpolate", dataframe=df, time_col='times', value_col='M_in')
 
         # Run simulation - include interpolation times for exact comparison
         interpolation_times = [0, 15, 30, 45, 60]
