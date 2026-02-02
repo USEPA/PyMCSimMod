@@ -1,11 +1,9 @@
 """Consolidated tests for backend functionality and standardization."""
 
-import numpy as np
 import pytest
 from pydantic import ValidationError
 
 from pymcsimmod.utils.backends import (
-    detect_available_backends,
     get_backend_capabilities,
     recommend_backend,
     validate_backend,

@@ -5,8 +5,6 @@ that are demonstrated in the documentation notebooks but not covered
 in the existing unit tests.
 """
 
-import warnings
-
 import numpy as np
 import pandas as pd
 import pytest

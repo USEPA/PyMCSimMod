@@ -11,7 +11,6 @@ import jax.numpy as jnp
 import numpy as np
 
 from ..config import BackendType
-from ..extra_typing import NumericArray
 from ..model import Approach
 from .base import OdeModel
 from .computed import ComputedModel
@@ -41,7 +40,6 @@ class EqxModel(eqx.Module):
             if hasattr(ff, "get") and hasattr(ff, "__getitem__") and "function" in ff:
                 # It's a forcing function specification dict
                 func_name = ff["function"]
-                args = ff.get("args", ())
                 kwargs = ff.get("kwargs", {})
 
                 # Use unified forcing function factory for all forcing functions

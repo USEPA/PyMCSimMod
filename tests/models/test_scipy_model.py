@@ -1,15 +1,11 @@
 """Comprehensive tests for ScipyModel implementation."""
 
-import warnings
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
 import pytest
 
 from pymcsimmod.config import BackendType
 from pymcsimmod.models.computed import ComputedModel
-from pymcsimmod.models.events import DiscreteEvent
 from pymcsimmod.models.scipy_model import ScipyModel
 
 
@@ -376,7 +372,6 @@ class TestScipyModelDiscreteEvents:
                 # Look at state shortly after the event to see the effect
                 post_event_idx = event_idx + 1 if event_idx + 1 < len(result.times) else event_idx
                 post_event_state_later = result.states[post_event_idx, 0]
-                expected_multiplied = post_event_state * 5.0
                 # Should be much larger than the pre-event state
                 assert post_event_state_later > 25.0
 
@@ -610,14 +605,14 @@ class TestScipyModelAdvancedFeatures:
         """Test models with simple parameters."""
         model_str = """
         States = { A };
-        
+
         # Simple parameters (avoid complex calculations that break to_dict)
         ke = 0.1;
-        
+
         Initialize { A = 10.0; }
-        
+
         Dynamics { dt(A) = -ke * A; }
-        
+
         End.
         """
 
@@ -701,7 +696,7 @@ class TestScipyModelAdvancedFeatures:
 
         # Function should work
         dose_at_t2 = result.input_functions["dose"](2.0)
-        assert isinstance(dose_at_t2, (int, float, np.number, np.ndarray))
+        assert isinstance(dose_at_t2, int | float | np.number | np.ndarray)
 
 
 class TestScipyModelErrorHandling:
@@ -711,7 +706,7 @@ class TestScipyModelErrorHandling:
         """Test handling of invalid model strings."""
         invalid_model = "This is not a valid model string"
 
-        with pytest.raises(Exception):  # Should raise some parsing exception
+        with pytest.raises((ValueError, RuntimeError)):  # Should raise some parsing exception
             ScipyModel(invalid_model)
 
     def test_missing_required_sections(self):
@@ -722,7 +717,7 @@ class TestScipyModelErrorHandling:
         """
         # Note: No End statement, incomplete structure
 
-        with pytest.raises(Exception):  # Should raise validation exception
+        with pytest.raises((ValueError, RuntimeError)):  # Should raise validation exception
             ScipyModel(incomplete_model)
 
     def test_integration_method_validation(self, simple_scipy_model, short_times):

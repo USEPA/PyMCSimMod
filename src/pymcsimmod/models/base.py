@@ -352,7 +352,7 @@ class OdeModel(ABC):
         # Handle unsupported times/values patterns
         if (
             forcing_function_name is not None
-            and isinstance(forcing_function_name, (list, tuple))
+            and isinstance(forcing_function_name, list | tuple)
             and "values" in kwargs
         ):
             raise ValueError(

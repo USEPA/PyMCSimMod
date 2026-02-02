@@ -8,7 +8,6 @@ import numpy as np
 import scipy.integrate as sci
 
 from ..config import BackendType
-from ..extra_typing import NumericArray
 from ..forcing.unified import UnifiedForcingFactory
 from ..model import Approach
 from ..utils.context import build_evaluation_context
@@ -319,7 +318,6 @@ class ScipyModel(OdeModel):
         for input_name, ff in self.forcing_functions.items():
             if isinstance(ff, dict) and "function" in ff:
                 func_name = ff["function"]
-                args = ff.get("args", ())
                 kwargs = ff.get("kwargs", {})
 
                 # Use unified forcing function factory for all forcing functions

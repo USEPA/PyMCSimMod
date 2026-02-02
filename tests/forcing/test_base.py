@@ -3,7 +3,6 @@
 import numpy as np
 import pytest
 
-from src.pymcsimmod.config import BackendType
 from src.pymcsimmod.forcing.base import (
     BackendAwareForcing,
     ForcingFunction,
@@ -378,7 +377,7 @@ class TestForcingIntegration:
 
             # Test that function can be called
             result = func(2.0)
-            assert isinstance(result, (int, float, np.number, np.ndarray))
+            assert isinstance(result, int | float | np.number | np.ndarray)
 
     def test_all_forcing_types_have_switch_times(self):
         """Test that all forcing types implement get_switch_times."""
@@ -392,7 +391,7 @@ class TestForcingIntegration:
         for forcing in forcings:
             switch_times = forcing.get_switch_times(0.0, 15.0)
             assert isinstance(switch_times, list)
-            assert all(isinstance(t, (int, float)) for t in switch_times)
+            assert all(isinstance(t, int | float) for t in switch_times)
 
     def test_forcing_function_caching_across_types(self):
         """Test that caching works correctly for different forcing types."""
@@ -458,7 +457,7 @@ class TestBackendParametrizedFunctionality:
     def _is_numeric_result(self, result):
         """Check if result is a numeric type (handles JAX arrays)."""
         # Handle regular Python/NumPy types
-        if isinstance(result, (int, float, np.number, np.ndarray)):
+        if isinstance(result, int | float | np.number | np.ndarray):
             return True
 
         # Handle JAX arrays
@@ -470,10 +469,8 @@ class TestBackendParametrizedFunctionality:
                 or "Array" in str(type(result))
             ):
                 return True
-        except:
-            pass
-
-        return False
+        except Exception:
+            return False
 
     # List all available backends
     @pytest.fixture(params=["scipy", "jax"])
@@ -559,7 +556,7 @@ class TestBackendParametrizedFunctionality:
             # Switch times should be same regardless of backend
             switch_times = forcing.get_switch_times(0.0, 15.0)
             assert isinstance(switch_times, list)
-            assert all(isinstance(t, (int, float)) for t in switch_times)
+            assert all(isinstance(t, int | float) for t in switch_times)
 
             # Creating function should not affect switch times
             _ = forcing.create_function(backend)

@@ -201,7 +201,7 @@ class TestScipyForcingFunctions:
 
         # Test function returns numeric value
         result = func(2.0)
-        assert isinstance(result, (int, float, np.number))
+        assert isinstance(result, int | float | np.number)
 
 
 class TestJAXForcingFunctions:
@@ -279,7 +279,7 @@ class TestJAXForcingFunctions:
         # Test automatic differentiation compatibility
         grad_func = jax.grad(lambda t: jnp.sum(func(t)))
         grad_result = grad_func(2.0)
-        assert isinstance(grad_result, (int, float)) or hasattr(grad_result, "__array__")
+        assert isinstance(grad_result, int | float) or hasattr(grad_result, "__array__")
 
         # Test function composition
         @jax.jit
@@ -317,7 +317,7 @@ class TestJAXForcingFunctions:
 
         # Test with scalar inputs
         scalar_result = func(1.5)
-        assert isinstance(scalar_result, (int, float)) or hasattr(scalar_result, "__array__")
+        assert isinstance(scalar_result, int | float) or hasattr(scalar_result, "__array__")
 
         # Test with 1D array inputs
         array_1d = jnp.array([1.5, 5.5, 10.5])
@@ -327,7 +327,7 @@ class TestJAXForcingFunctions:
         # Test with 0D array inputs (from scalar operations)
         array_0d = jnp.array(1.5)  # 0-dimensional array
         result_0d = func(array_0d)
-        assert isinstance(result_0d, (int, float)) or hasattr(result_0d, "__array__")
+        assert isinstance(result_0d, int | float) or hasattr(result_0d, "__array__")
 
         # Test with 2D array inputs (tests ellipsis broadcasting t[..., None])
         array_2d = jnp.reshape(array_1d, (3, 1))

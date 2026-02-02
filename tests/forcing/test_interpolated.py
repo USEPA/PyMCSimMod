@@ -234,7 +234,7 @@ class TestInterpolatedForcingCore:
 
     def test_plot_data_comprehensive(self):
         """Test comprehensive plotting functionality."""
-        matplotlib = pytest.importorskip("matplotlib", reason="matplotlib not available")
+        pytest.importorskip("matplotlib", reason="matplotlib not available")
         import matplotlib.pyplot as plt
 
         times = [0, 1, 2, 3, 4]

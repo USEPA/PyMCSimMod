@@ -936,73 +936,6 @@ class TestJaxCompatibility:
         jitted_results = jitted_func(test_times)
         np.testing.assert_allclose(results, jitted_results, rtol=1e-6)
 
-    def test_full_model_jax_pipeline(self):
-        """Test complete JAX model pipeline with forcing functions."""
-        model_str = """
-        States = {
-            A
-        };
-
-        Inputs = {
-            dose_input
-        };
-
-        # Parameters with default values
-        ka = 1.0;
-        ke = 0.1;
-
-        Initialize {
-            A = 0.0;
-        }
-
-        Dynamics {
-            dt(A) = dose_input * ka - A * ke;
-        }
-
-        Outputs = {
-            A_out
-        };
-
-        CalcOutputs {
-            A_out = A;
-        }
-
-        End.
-        """
-
-        model = JaxModel(model_str)
-
-        # Test with different forcing function types
-        forcing_tests = [
-            {"function": "OnOff", "kwargs": {"t0": 1.0, "t1": 3.0, "s": 10.0}},
-            {"function": "ConstFunc", "kwargs": {"value": 2.0}},
-        ]
-
-        times = np.linspace(0, 10, 50)
-
-        for test_case in forcing_tests:
-            # Assign forcing function
-            model.forcing_functions["dose_input"] = {
-                "function": test_case["function"],
-                "args": (),
-                "kwargs": test_case["kwargs"],
-            }
-
-            # Run model
-            result = model.run_model(times)
-
-            # Verify result structure
-            assert isinstance(result, ComputedModel)
-            assert isinstance(result.states, np.ndarray)
-            assert isinstance(result.times, np.ndarray)
-            assert not np.any(np.isnan(result.states))
-
-            # Verify forcing function is in input_functions and is JAX-compatible
-            assert "dose_input" in result.input_functions
-            test_time = jnp.array(1.0)
-            ff_result = result.input_functions["dose_input"](test_time)
-            assert isinstance(ff_result, jnp.ndarray)
-
     def test_jax_array_broadcasting_compatibility(self):
         """Test that JAX functions work with array broadcasting."""
         model_str = """
@@ -1030,51 +963,6 @@ class TestJaxCompatibility:
 
         assert isinstance(ff_results, jnp.ndarray)
         assert ff_results.shape == test_times.shape
-
-    def test_events_raise_error_for_jax_models(self):
-        """Test that discrete events properly raise NotImplementedError for JAX models."""
-        model_str = """
-        States = { A };
-        ka = 1.0; ke = 0.1;
-        Initialize { A = 10.0; }
-        Dynamics { dt(A) = -ke * A; }
-        End.
-        """
-
-        model = JaxModel(model_str)
-
-        # Manually add an event to test error handling
-        model.events.append({"type": "test_event"})
-
-        times = np.linspace(0, 5, 10)
-
-        with pytest.raises(NotImplementedError, match="Discrete events are not yet supported"):
-            model.run_model(times)
-
-    def test_numerical_stability_guidance(self):
-        """Test that proper error messages are provided for numerical instability."""
-        # Create a potentially unstable model
-        model_str = """
-        States = { A };
-        k = 1e6;  # Very large rate constant
-        Initialize { A = 1.0; }
-        Dynamics { dt(A) = -k * A * A * A; }  # Nonlinear and potentially stiff
-        End.
-        """
-
-        model = JaxModel(model_str)
-        times = np.linspace(0, 1, 100)
-
-        # This might produce NaN values, and if so, should give helpful error message
-        try:
-            result = model.run_model(times)
-            # If it doesn't fail, just verify no NaN values
-            assert not np.any(np.isnan(result.states))
-        except ValueError as e:
-            # Should provide helpful guidance for numerical issues
-            assert "JAX model integration produced NaN values" in str(e)
-            assert "numerical instability" in str(e)
-            assert "smaller initial step size" in str(e) or "different solver" in str(e)
 
     def test_model_with_interpolated_forcing_integration(self):
         """Test JAX model with interpolated forcing function from data."""
@@ -1121,29 +1009,6 @@ class TestJaxCompatibility:
         jitted_result = jitted_ff(test_time)
         np.testing.assert_allclose(ff_result, jitted_result, rtol=1e-6)
 
-    def test_interpolated_forcing_jax_compatibility(self):
-        """Test interpolated forcing functions work with JAX backend."""
-        times = [0.0, 1.0, 2.0, 5.0]
-        values = [10.0, 20.0, 30.0, 50.0]
-
-        # Create interpolated forcing function via unified factory
-        func = UnifiedForcingFactory.create_forcing_function(
-            "InterpolatedForcing",
-            backend=BackendType.JAX,
-            data_dict={"time": times, "value": values},
-        )
-
-        # Test with JAX arrays
-        test_times = jnp.array([0.5, 1.5, 4.0])
-        results = jax.vmap(func)(test_times)
-        assert isinstance(results, jnp.ndarray)
-        assert len(results) == len(test_times)
-
-        # Test JIT compilation
-        jitted_func = jax.jit(jax.vmap(func))
-        jitted_results = jitted_func(test_times)
-        np.testing.assert_allclose(results, jitted_results, rtol=1e-6)
-
     def test_full_model_jax_pipeline(self):
         """Test complete JAX model pipeline with forcing functions."""
         model_str = """
@@ -1210,34 +1075,6 @@ class TestJaxCompatibility:
             test_time = jnp.array(1.0)
             ff_result = result.input_functions["dose_input"](test_time)
             assert isinstance(ff_result, jnp.ndarray)
-
-    def test_jax_array_broadcasting_compatibility(self):
-        """Test that JAX functions work with array broadcasting."""
-        model_str = """
-        States = { A };
-        Inputs = { dose };
-        ka = 1.0; ke = 0.1;
-        Initialize { A = 0.0; }
-        Dynamics { dt(A) = dose * ka - A * ke; }
-        End.
-        """
-
-        model = JaxModel(model_str)
-        model.forcing_functions["dose"] = {
-            "function": "OnOff",
-            "kwargs": {"t0": 1.0, "t1": 3.0, "s": 10.0},
-        }
-
-        result = model.run_model(np.linspace(0, 5, 20))
-
-        # Test vectorized evaluation of forcing functions
-        test_times = jnp.array([0.5, 1.5, 2.5, 3.5])
-        ff = result.input_functions["dose"]
-        vectorized_ff = jax.vmap(ff)
-        ff_results = vectorized_ff(test_times)
-
-        assert isinstance(ff_results, jnp.ndarray)
-        assert ff_results.shape == test_times.shape
 
     def test_events_raise_error_for_jax_models(self):
         """Test that discrete events properly raise NotImplementedError for JAX models."""
@@ -1353,7 +1190,7 @@ class TestJaxModelErrorHandling:
         """Test handling of invalid model strings."""
         invalid_model = "This is not a valid model string"
 
-        with pytest.raises(Exception):  # Should raise some parsing exception
+        with pytest.raises((ValueError, RuntimeError)):  # Should raise some parsing exception
             JaxModel(invalid_model)
 
     def test_missing_required_sections(self):
@@ -1364,7 +1201,7 @@ class TestJaxModelErrorHandling:
         """
         # Note: No End statement, incomplete structure
 
-        with pytest.raises(Exception):  # Should raise validation exception
+        with pytest.raises((ValueError, RuntimeError)):  # Should raise validation exception
             JaxModel(incomplete_model)
 
     def test_empty_time_array(self, simple_pk_model_str):
@@ -1483,16 +1320,16 @@ class TestJaxModelErrorHandling:
             model = JaxModel(invalid_model)
             # If it succeeds, should have empty state names
             assert len(model.state_names) == 0
-        except Exception:
+        except Exception as e:
             # Raising an exception for empty states is also acceptable behavior
-            pass
+            pytest.skip(f"Empty states caused expected exception: {e}")
 
     def test_circular_dependencies_in_dynamics(self):
         """Test handling of circular dependencies in dynamics."""
         circular_model = """
         States = { A, B };
         Initialize { A = 1.0; B = 2.0; }
-        Dynamics { 
+        Dynamics {
             dt(A) = B;
             dt(B) = A;  # Simple circular dependency
         }
@@ -1549,7 +1386,7 @@ class TestJaxModelFileLoading:
         invalid_file = tmp_path / "invalid.model"
         invalid_file.write_text("This is not a valid model")
 
-        with pytest.raises(Exception):  # Should raise parsing exception
+        with pytest.raises((ValueError, RuntimeError)):  # Should raise parsing exception
             JaxModel(invalid_file)
 
 
@@ -1641,7 +1478,6 @@ class TestJaxModelParameterEffects:
             perturbed_result = model.run_model(times)
 
             # Should see proportional changes in solution
-            relative_param_change = abs(perturbed_ke - base_ke) / base_ke
             relative_solution_change = (
                 np.abs(perturbed_result.states[-1, 0] - base_result.states[-1, 0])
                 / base_result.states[-1, 0]

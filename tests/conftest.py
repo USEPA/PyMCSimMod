@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import Dict, List, Optional, Union
 
 import numpy as np
 import pytest
@@ -147,7 +146,7 @@ def pred_prey_model_str() -> str:
 
     # Parameters
     alpha = 1.0;    # Prey growth rate
-    beta = 0.1;     # Predation rate  
+    beta = 0.1;     # Predation rate
     gamma = 1.5;    # Predator efficiency
     delta = 0.075;  # Predator death rate
 
@@ -175,14 +174,14 @@ def minimal_model_str() -> str:
     """Minimal model for basic functionality testing."""
     return """
     States = { A };
-    
+
     # Add a parameter so tests can modify it
     decay_rate = 0.1;
-    
+
     Initialize { A = 1.0; }
-    
+
     Dynamics { dt(A) = -decay_rate * A; }
-    
+
     End.
     """
 
@@ -370,7 +369,7 @@ def limited_inputs_model_str() -> str:
     return """
     States = {
         A1,     # Central compartment amount
-        A2      # Peripheral compartment amount  
+        A2      # Peripheral compartment amount
     };
 
     Inputs = {
@@ -378,7 +377,7 @@ def limited_inputs_model_str() -> str:
     };
 
     Outputs = {
-        C1,        # Central concentration 
+        C1,        # Central concentration
         C2,        # Peripheral concentration
         total_amount    # Total amount
     };
