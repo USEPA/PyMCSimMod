@@ -180,7 +180,9 @@ class UnifiedForcingFactory:
         cls._backends[name] = backend_class
 
     @classmethod
-    def create_onoff(cls, t0: float, t1: float, s: float = 10.0, backend: BackendType = BackendType.SCIPY):
+    def create_onoff(
+        cls, t0: float, t1: float, s: float = 10.0, backend: BackendType = BackendType.SCIPY
+    ):
         """Create an on-off forcing function for specified backend."""
         backend_impl = cls._get_backend(backend)
 
@@ -194,7 +196,12 @@ class UnifiedForcingFactory:
 
     @classmethod
     def create_perdose(
-        cls, t0: float, duration: float, period: float, s: float = 10.0, backend: BackendType = BackendType.SCIPY
+        cls,
+        t0: float,
+        duration: float,
+        period: float,
+        s: float = 10.0,
+        backend: BackendType = BackendType.SCIPY,
     ):
         """Create a periodic dosing forcing function for specified backend."""
         backend_impl = cls._get_backend(backend)
@@ -213,7 +220,11 @@ class UnifiedForcingFactory:
 
     @classmethod
     def create_ndoses(
-        cls, t0_list: list[float], duration: float, s: float = 10.0, backend: BackendType = BackendType.SCIPY
+        cls,
+        t0_list: list[float],
+        duration: float,
+        s: float = 10.0,
+        backend: BackendType = BackendType.SCIPY,
     ):
         """Create a multiple discrete dose forcing function for specified backend."""
         backend_impl = cls._get_backend(backend)
@@ -223,11 +234,11 @@ class UnifiedForcingFactory:
         def ndoses_func(t):
             t = backend_impl.asarray(t)
             t1_arr = t0_arr + duration
-            
+
             # Use natural broadcasting - backends handle scalar/array automatically
             dose_values = (
-                backend_impl.tanh(s * (t[..., None] - t0_arr)) - 
-                backend_impl.tanh(s * (t[..., None] - t1_arr))
+                backend_impl.tanh(s * (t[..., None] - t0_arr))
+                - backend_impl.tanh(s * (t[..., None] - t1_arr))
             ) / 2
             return backend_impl.sum(dose_values, axis=-1)
 
@@ -261,26 +272,26 @@ class UnifiedForcingFactory:
         data_dict=None,
         time_col: str = "time",
         value_col: str = "value",
-        **kwargs
+        **kwargs,
     ):
         """
         Create an interpolated forcing function using existing class methods.
-        
+
         Args:
             backend: Backend to use ('scipy', 'jax', etc.)
             dataframe: pandas DataFrame with time and value columns (deSolve style)
             data_dict: Dictionary with time and value data
             time_col: Name of time column (for DataFrame)
-            value_col: Name of value column (for DataFrame) 
+            value_col: Name of value column (for DataFrame)
             **kwargs: Additional parameters for InterpolatedForcing
-            
+
         Returns:
             Compiled interpolated forcing function for the specified backend
-            
+
         Raises:
             ValueError: If neither dataframe nor data_dict is provided
             ImportError: If required backend is not available
-            
+
         Example:
             # Using DataFrame (deSolve style)
             func = UnifiedForcingFactory.create_interpolated(
@@ -290,7 +301,7 @@ class UnifiedForcingFactory:
                 value_col="concentration",
                 interpolation_method="cubic"
             )
-            
+
             # Using dict
             func = UnifiedForcingFactory.create_interpolated(
                 backend="jax",
@@ -298,12 +309,10 @@ class UnifiedForcingFactory:
             )
         """
         from ..forcing.interpolated import InterpolatedForcing
-        
+
         if dataframe is not None:
             # Use from_dataframe class method for deSolve compatibility
-            forcing = InterpolatedForcing.from_dataframe(
-                dataframe, time_col, value_col, **kwargs
-            )
+            forcing = InterpolatedForcing.from_dataframe(dataframe, time_col, value_col, **kwargs)
         elif data_dict is not None:
             # Use from_dict class method
             forcing = InterpolatedForcing.from_dict(data_dict, **kwargs)
@@ -311,23 +320,25 @@ class UnifiedForcingFactory:
             raise ValueError(
                 "Must provide either 'dataframe' or 'data_dict' parameter for interpolated forcing"
             )
-            
+
         return forcing.create_function(backend)
 
     @classmethod
-    def create_forcing_function(cls, func_name: str, backend: BackendType = BackendType.SCIPY, args=(), **kwargs):
+    def create_forcing_function(
+        cls, func_name: str, backend: BackendType = BackendType.SCIPY, args=(), **kwargs
+    ):
         """
         Create a forcing function by name with the specified backend.
-        
+
         Args:
             func_name: Name of the forcing function ('OnOff', 'PerDose', 'NDoses', 'InterpolatedForcing', etc.)
             backend: Backend to use ('scipy', 'jax', etc.)
             args: Positional arguments for the forcing function (mainly for InterpolatedForcing)
             **kwargs: Parameters for the forcing function
-            
+
         Returns:
             Compiled forcing function for the specified backend
-            
+
         Raises:
             ValueError: If func_name is unknown or required parameters are missing
         """
@@ -336,49 +347,55 @@ class UnifiedForcingFactory:
             t1 = kwargs.get("t1")
             s = kwargs.get("s", 10.0)
             if t0 is None or t1 is None:
-                raise ValueError(f"OnOff forcing function requires 't0' and 't1' parameters")
+                raise ValueError("OnOff forcing function requires 't0' and 't1' parameters")
             return cls.create_onoff(t0, t1, s, backend)
-            
+
         elif func_name == "PerDose":
             t0 = kwargs.get("t0")
             duration = kwargs.get("duration")
             period = kwargs.get("period")
             s = kwargs.get("s", 10.0)
             if any(param is None for param in [t0, duration, period]):
-                raise ValueError(f"PerDose forcing function requires 't0', 'duration', and 'period' parameters")
+                raise ValueError(
+                    "PerDose forcing function requires 't0', 'duration', and 'period' parameters"
+                )
             return cls.create_perdose(t0, duration, period, s, backend)
-            
+
         elif func_name == "NDoses":
             t0_list = kwargs.get("t0_list")
             duration = kwargs.get("duration")
             s = kwargs.get("s", 10.0)
             if t0_list is None or duration is None:
-                raise ValueError(f"NDoses forcing function requires 't0_list' and 'duration' parameters")
+                raise ValueError(
+                    "NDoses forcing function requires 't0_list' and 'duration' parameters"
+                )
             return cls.create_ndoses(t0_list, duration, s, backend)
-            
+
         elif func_name == "ZeroFunc":
             return cls.create_zerofunc(backend)
-            
+
         elif func_name == "ConstFunc":
             value = kwargs.get("value")
             if value is None:
-                raise ValueError(f"ConstFunc forcing function requires 'value' parameter")
+                raise ValueError("ConstFunc forcing function requires 'value' parameter")
             return cls.create_constantfunc(value, backend)
-            
+
         elif func_name == "InterpolatedForcing" or func_name == "Interpolate":
             # Use the new create_interpolated method
             # If args are provided (times, values), convert to data_dict
             if args and len(args) >= 2:
                 times, values = args[0], args[1]
-                kwargs['data_dict'] = {'time': times, 'value': values}
+                kwargs["data_dict"] = {"time": times, "value": values}
             # Handle times/values in kwargs for interpolation
-            elif 'times' in kwargs and 'values' in kwargs:
-                times, values = kwargs.pop('times'), kwargs.pop('values')
-                kwargs['data_dict'] = {'time': times, 'value': values}
+            elif "times" in kwargs and "values" in kwargs:
+                times, values = kwargs.pop("times"), kwargs.pop("values")
+                kwargs["data_dict"] = {"time": times, "value": values}
             return cls.create_interpolated(backend=backend, **kwargs)
-            
+
         else:
-            raise ValueError(f"Unknown forcing function type: '{func_name}'. Available: OnOff, PerDose, NDoses, ZeroFunc, ConstFunc, InterpolatedForcing, Interpolate")
+            raise ValueError(
+                f"Unknown forcing function type: '{func_name}'. Available: OnOff, PerDose, NDoses, ZeroFunc, ConstFunc, InterpolatedForcing, Interpolate"
+            )
 
     @classmethod
     def _get_backend(cls, backend: BackendType) -> ForcingBackend:
@@ -396,13 +413,19 @@ def create_onoff(t0: float, t1: float, s: float = 10.0, backend: BackendType = B
 
 
 def create_perdose(
-    t0: float, duration: float, period: float, s: float = 10.0, backend: BackendType = BackendType.SCIPY
+    t0: float,
+    duration: float,
+    period: float,
+    s: float = 10.0,
+    backend: BackendType = BackendType.SCIPY,
 ):
     """Create a periodic dosing forcing function."""
     return UnifiedForcingFactory.create_perdose(t0, duration, period, s, backend)
 
 
-def create_ndoses(t0_list: list[float], duration: float, s: float = 10.0, backend: BackendType = BackendType.SCIPY):
+def create_ndoses(
+    t0_list: list[float], duration: float, s: float = 10.0, backend: BackendType = BackendType.SCIPY
+):
     """Create a multiple discrete dose forcing function."""
     return UnifiedForcingFactory.create_ndoses(t0_list, duration, s, backend)
 

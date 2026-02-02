@@ -117,7 +117,7 @@ def check_events(
         # Provide specific guidance based on time range
         time_start, time_end = float(np.min(times)), float(np.max(times))
         step_size = (time_end - time_start) / (len(times) - 1)
-        
+
         warnings.warn(
             f"Event times {missing_events} not found in time grid - automatically adding them to ensure accurate event handling. "
             f"To avoid this message, consider using: np.arange({time_start}, {time_end + step_size:.3f}, {step_size:.3f}) "

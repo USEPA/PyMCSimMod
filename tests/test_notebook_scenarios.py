@@ -22,6 +22,7 @@ def create_model(model_str: str, backend: str = "scipy"):
     elif backend.lower() == "jax":
         try:
             from pymcsimmod.models.jax_model import JaxModel
+
             return JaxModel(model_str)
         except ImportError:
             pytest.skip("JAX not available")
@@ -48,18 +49,18 @@ def verify_basic_pk_solution(solution, expected_states: int, min_times: int, sta
 
 class TestTimeHandlingBehavior:
     """Test that solution times correctly handle input times across backends."""
-    
+
     @pytest.mark.parametrize("backend", ["scipy", "jax"])
     def test_times_match_without_forcing_functions(self, bodyweight_pk_model_str, backend):
         """Test that output times exactly match input times when no forcing functions create switch times."""
         model = create_model(bodyweight_pk_model_str, backend)
         model.assign_forcing_function("M_in", "ConstFunc", value=70.0)
         model.assign_forcing_function("dose_in", "ConstFunc", value=0.0)  # No dosing
-        
+
         # Test various time patterns
         input_times = np.array([0.0, 1.0, 2.5, 5.0, 10.0])
         solution = model.run_model(input_times)
-        
+
         if backend == "jax":
             # JAX should return exactly the requested times
             assert solution.times == pytest.approx(input_times, abs=1e-10)
@@ -70,57 +71,60 @@ class TestTimeHandlingBehavior:
             # All input times should be present in solution times
             for input_time in input_times:
                 assert np.any(np.abs(solution.times - input_time) < 1e-10)
-    
-    @pytest.mark.parametrize("backend", ["scipy", "jax"])  
+
+    @pytest.mark.parametrize("backend", ["scipy", "jax"])
     def test_times_with_forcing_functions(self, bodyweight_pk_model_str, backend):
         """Test time handling when forcing functions create switch times."""
         model = create_model(bodyweight_pk_model_str, backend)
         model.assign_forcing_function("M_in", "ConstFunc", value=70.0)
-        
+
         if backend == "jax":
             # Use very simple parameters for JAX to avoid solver step issues
-            model.assign_forcing_function("dose_in", "OnOff", t0=0.1, t1=0.4) 
+            model.assign_forcing_function("dose_in", "OnOff", t0=0.1, t1=0.4)
             input_times = np.array([0.0, 0.2, 0.5])
         else:
-            model.assign_forcing_function("dose_in", "PerDose", t0=0, duration=0.01, period=5, s=10.0)
+            model.assign_forcing_function(
+                "dose_in", "PerDose", t0=0, duration=0.01, period=5, s=10.0
+            )
             input_times = np.array([0.0, 2.0, 5.0, 7.0, 10.0])
-            
+
         solution = model.run_model(input_times)
-        
+
         # All input times should be present in solution
         # Use different tolerance for JAX due to float32/float64 precision differences
         tolerance = 1e-6 if backend == "jax" else 1e-10
         for input_time in input_times:
-            assert np.any(np.abs(solution.times - input_time) < tolerance), \
+            assert np.any(np.abs(solution.times - input_time) < tolerance), (
                 f"Input time {input_time} not found in solution times"
-        
+            )
+
         if backend == "scipy":
             # SciPy may add switch times, so solution can be longer
             assert len(solution.times) >= len(input_times)
         # JAX behavior with forcing functions may vary by implementation
-    
+
     def test_cross_backend_time_consistency(self, bodyweight_pk_model_str):
         """Test that both backends handle the same input times reasonably."""
         input_times = np.array([0.0, 1.0, 3.0, 5.0])
-        
+
         # SciPy model
         scipy_model = create_model(bodyweight_pk_model_str, "scipy")
         scipy_model.assign_forcing_function("M_in", "ConstFunc", value=70.0)
         scipy_model.assign_forcing_function("dose_in", "ConstFunc", value=0.0)
         scipy_solution = scipy_model.run_model(input_times)
-        
-        # JAX model  
+
+        # JAX model
         try:
             jax_model = create_model(bodyweight_pk_model_str, "jax")
             jax_model.assign_forcing_function("M_in", "ConstFunc", value=70.0)
             jax_model.assign_forcing_function("dose_in", "ConstFunc", value=0.0)
             jax_solution = jax_model.run_model(input_times)
-            
+
             # Both should include all input times
             for input_time in input_times:
                 assert np.any(np.abs(scipy_solution.times - input_time) < 1e-10)
                 assert np.any(np.abs(jax_solution.times - input_time) < 1e-10)
-                
+
         except ImportError:
             pytest.skip("JAX not available for cross-backend comparison")
 
@@ -140,9 +144,17 @@ class TestRealWorldForcingScenarios:
         # Set up periodic oral dosing with JAX-friendly parameters
         if backend == "jax":
             # Use NDoses with mild stiffness for JAX stability
-            model.assign_forcing_function("OralExp", "NDoses", t0_list=[0, 7, 14, 21, 28], duration=model.parameters["OralDur"], s=1.0)
+            model.assign_forcing_function(
+                "OralExp",
+                "NDoses",
+                t0_list=[0, 7, 14, 21, 28],
+                duration=model.parameters["OralDur"],
+                s=1.0,
+            )
         else:
-            model.assign_forcing_function("OralExp", "PerDose", t0=0, duration=model.parameters["OralDur"], period=7, s=10.0)
+            model.assign_forcing_function(
+                "OralExp", "PerDose", t0=0, duration=model.parameters["OralDur"], period=7, s=10.0
+            )
         times = np.linspace(0, 35, 1000)
 
         # Use appropriate solver tolerances for JAX
@@ -152,11 +164,11 @@ class TestRealWorldForcingScenarios:
             solution = model.run_model(times)
 
         # Verify basic behavior using standardized helper
-        verify_basic_pk_solution(solution, 4, len(times)//2, ["A0", "A1", "A2", "AUC"])
+        verify_basic_pk_solution(solution, 4, len(times) // 2, ["A0", "A1", "A2", "AUC"])
 
         # Check that dosing events occur using standardized peak detection
         A0_values = solution.states[:, 0]
-        
+
         if backend == "jax":
             # TODO: JAX forcing function integration needs refinement for accurate peak detection
             # For now, just verify the model runs without NaN values
@@ -184,9 +196,17 @@ class TestRealWorldForcingScenarios:
         # Set up periodic oral dosing with JAX-friendly parameters
         if backend == "jax":
             # Use NDoses with mild stiffness for JAX stability
-            model.assign_forcing_function("OralExp", "NDoses", t0_list=[0, 7, 14, 21, 28], duration=model.parameters["OralDur"], s=1.0)
+            model.assign_forcing_function(
+                "OralExp",
+                "NDoses",
+                t0_list=[0, 7, 14, 21, 28],
+                duration=model.parameters["OralDur"],
+                s=1.0,
+            )
         else:
-            model.assign_forcing_function("OralExp", "PerDose", t0=0, duration=model.parameters["OralDur"], period=7, s=10.0)
+            model.assign_forcing_function(
+                "OralExp", "PerDose", t0=0, duration=model.parameters["OralDur"], period=7, s=10.0
+            )
         times = np.linspace(0, 35, 1000)
 
         # Use appropriate solver tolerances for JAX
@@ -196,7 +216,7 @@ class TestRealWorldForcingScenarios:
             solution = model.run_model(times)
 
         # Verify results using standardized helper
-        verify_basic_pk_solution(solution, 4, len(times)//2, ["A0", "A1", "A2", "AUC"])
+        verify_basic_pk_solution(solution, 4, len(times) // 2, ["A0", "A1", "A2", "AUC"])
 
     @pytest.mark.parametrize("backend", ["scipy", "jax"])
     def test_ndoses_multiple_discrete_times(self, pk1_model_str, backend):
@@ -230,7 +250,7 @@ class TestRealWorldForcingScenarios:
 
         # Check that we see dose events using standardized detection
         A0_values = solution.states[:, 0]
-        
+
         if backend == "jax":
             # TODO: JAX forcing function integration needs refinement for accurate peak detection
             # For now, just verify the model runs and produces reasonable values
@@ -259,7 +279,9 @@ class TestRealWorldForcingScenarios:
         model_interp.update_constants(OralDose=25)
         time_points = [0, 14, 28, 42, 56, 70, 84]
         bodyweight_values = [0.25, 0.4, 0.6, 0.85, 1.1, 1.3, 1.45]
-        model_interp.assign_forcing_function("M_in", "Interpolate", times=time_points, values=bodyweight_values)
+        model_interp.assign_forcing_function(
+            "M_in", "Interpolate", times=time_points, values=bodyweight_values
+        )
         model_interp.assign_forcing_function(
             "OralExp", "PerDose", t0=0, duration=model_interp.parameters["OralDur"], period=7
         )
@@ -320,7 +342,7 @@ class TestComplexDiscreteEventsWorkflows:
         # Check that events occurred using standardized detection
         A0_values = solution.states[:, 0]  # First state (A0)
         event_times = events_df["time"].values
-        
+
         doses_detected = 0
         for event_time in event_times:
             time_idx = np.argmin(np.abs(times - event_time))
@@ -487,6 +509,7 @@ class TestModelComparisonAndValidation:
 
         # Final total should equal initial dose
         assert total_values[-1] == pytest.approx(100.0, abs=1e-6)
+
 
 if __name__ == "__main__":
     pytest.main([__file__])

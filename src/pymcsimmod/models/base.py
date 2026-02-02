@@ -19,7 +19,7 @@ from .events import DiscreteEvent
 
 class OdeModel(ABC):
     """Abstract base class for ODE models."""
-    
+
     # Backend type - to be set by subclasses
     backend: BackendType
 
@@ -301,18 +301,18 @@ class OdeModel(ABC):
 
         Standard API:
             model.assign_forcing_function(var, forcing_type, **kwargs)
-            
+
         Examples:
             # Traditional forcing functions
             model.assign_forcing_function('input', 'PerDose', t0=0, duration=1, period=24)
             model.assign_forcing_function('input', 'NDoses', t0_list=[0,24,48], duration=1)
             model.assign_forcing_function('input', 'OnOff', t0=0, t1=10)
-            
+
             # Interpolated forcing
             model.assign_forcing_function('input', 'Interpolate', times=[0,1,2], values=[10,20,30])
             model.assign_forcing_function('input', 'Interpolate', dataframe=df)
             model.assign_forcing_function('input', 'Interpolate', data_dict={'time': [0,1,2], 'value': [10,20,30]})
-            
+
         Legacy support (deprecated):
             - DataFrame/dict as first argument for multi-variable interpolation
             - Times array as second argument for backward compatibility
@@ -328,21 +328,21 @@ class OdeModel(ABC):
         """
         if not hasattr(self, "forcing_functions"):
             self.forcing_functions = {}
-            
+
         # Handle unsupported DataFrame multi-variable interpolation
         if pd is not None and isinstance(input_name, pd.DataFrame):
             raise ValueError(
                 "Passing DataFrame as first argument is not supported. Use: "
                 "assign_forcing_function(var, 'Interpolate', dataframe=df) for each variable"
             )
-            
+
         # Handle unsupported dictionary multi-variable interpolation
         elif isinstance(input_name, dict):
             raise ValueError(
                 "Passing dictionary as first argument is not supported. Use: "
                 "assign_forcing_function(var, 'Interpolate', data_dict=data) for each variable"
             )
-            
+
         # Validate input variable name
         if input_name not in self.inputs:
             raise ValueError(
@@ -351,22 +351,22 @@ class OdeModel(ABC):
 
         # Handle unsupported times/values patterns
         if (
-            forcing_function_name is not None 
+            forcing_function_name is not None
             and isinstance(forcing_function_name, (list, tuple))
-            and 'values' in kwargs
+            and "values" in kwargs
         ):
             raise ValueError(
                 "Passing times as second argument is not supported. Use: "
                 "assign_forcing_function(var, 'Interpolate', times=times, values=values)"
             )
-            
+
         # Handle unsupported times in kwargs with variable name
-        elif 'times' in kwargs and input_name in kwargs:
+        elif "times" in kwargs and input_name in kwargs:
             raise ValueError(
                 "Using variable name in kwargs is not supported. Use: "
                 "assign_forcing_function(var, 'Interpolate', times=times, values=values)"
             )
-            
+
         # Require forcing function name
         if forcing_function_name is None:
             raise ValueError(
@@ -384,34 +384,38 @@ class OdeModel(ABC):
     def _create_forcing_functions_for_backend(self, backend: BackendType = None):
         """
         Create actual forcing functions for the specified backend from stored specifications.
-        
+
         This method is compatible with both ScipyModel and JAXModel implementations:
         - ScipyModel: Can use this for batch compilation or compile on-demand
         - JAXModel: Can use this in EqxModel.compile_forcing_functions() for batch compilation
-        
+
         Args:
             backend: Backend type to use for creating forcing functions.
                     If None, uses the model's default backend.
-                    
+
         Returns:
             Dictionary mapping input names to compiled forcing functions.
             For JAX backend, all functions are JIT-compiled and ready for use.
         """
         from ..forcing.unified import UnifiedForcingFactory
-        
+
         if backend is None:
-            backend = self.backend if hasattr(self, 'backend') else BackendType.SCIPY
-            
+            backend = self.backend if hasattr(self, "backend") else BackendType.SCIPY
+
         compiled_functions = {}
-        
+
         for input_name, ff_spec in self.forcing_functions.items():
             # Use duck typing approach compatible with JAX equinox modules
             # Check for dict-like interface (same as JAXModel does)
-            if hasattr(ff_spec, "get") and hasattr(ff_spec, "__getitem__") and "function" in ff_spec:
+            if (
+                hasattr(ff_spec, "get")
+                and hasattr(ff_spec, "__getitem__")
+                and "function" in ff_spec
+            ):
                 func_name = ff_spec["function"]
                 args = ff_spec.get("args", ())
                 kwargs = ff_spec.get("kwargs", {})
-                
+
                 # Create backend-specific forcing function
                 # For JAX: will be JIT-compiled and ready for use
                 # For SciPy: will be a regular callable
@@ -422,7 +426,7 @@ class OdeModel(ABC):
                 # Already a compiled function or other callable
                 # This handles both legacy format and pre-compiled functions
                 compiled_functions[input_name] = ff_spec
-                
+
         return compiled_functions
 
     def extract_switch_times(self, forcing_functions, t_start, t_end):
@@ -479,7 +483,7 @@ class OdeModel(ABC):
                 elif func in ["InterpolatedForcing", "Interpolate"]:
                     # For interpolated forcing, extract times from different data formats
                     times_data = []
-                    
+
                     # Check args for times array (legacy format)
                     if len(ff.get("args", [])) > 0:
                         times_data = ff["args"][0]
@@ -491,9 +495,9 @@ class OdeModel(ABC):
                     elif "dataframe" in kwargs:
                         df = kwargs["dataframe"]
                         time_col = kwargs.get("time_col", "time")
-                        if hasattr(df, 'columns') and time_col in df.columns:
+                        if hasattr(df, "columns") and time_col in df.columns:
                             times_data = df[time_col].tolist()
-                    
+
                     for t in times_data:
                         if t >= t_start and t <= t_end:
                             switch_times.add(t)

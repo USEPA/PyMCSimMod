@@ -9,16 +9,16 @@ import scipy.integrate as sci
 
 from ..config import BackendType
 from ..extra_typing import NumericArray
+from ..forcing.unified import UnifiedForcingFactory
 from ..model import Approach
 from ..utils.context import build_evaluation_context
 from .base import OdeModel
 from .computed import ComputedModel
-from ..forcing.unified import UnifiedForcingFactory
 
 
 class ScipyModel(OdeModel):
     """ODE model implementation using scipy.integrate.solve_ivp."""
-    
+
     backend = BackendType.SCIPY
 
     def __init__(self, model: str | Path):
@@ -47,7 +47,7 @@ class ScipyModel(OdeModel):
         Returns:
             Dictionary containing all variables for expression evaluation.
         """
-        
+
         # Calculate forcing function values
         forcing_values = {}
         for input_name, ff in self.forcing_functions.items():
@@ -55,13 +55,13 @@ class ScipyModel(OdeModel):
                 func_name = ff["function"]
                 args = ff.get("args", ())
                 kwargs = ff.get("kwargs", {})
-                
+
                 # Use unified forcing function factory for all forcing functions
                 func = UnifiedForcingFactory.create_forcing_function(
                     func_name, backend=self.backend, args=args, **kwargs
                 )
                 forcing_values[input_name] = func(t)
-            else: # pragma: no cover
+            else:  # pragma: no cover
                 # Direct callable (fallback for compatibility)
                 forcing_values[input_name] = ff(t)
 
@@ -144,14 +144,14 @@ class ScipyModel(OdeModel):
 
         # Get all switch times (forcing functions + events)
         switch_times = self.extract_switch_times(self.forcing_functions, times[0], times[-1])
-        
+
         # If no events, use the original method
         if not self.events:
             t_span = np.array([times[0], times[-1]])
             all_times = np.unique(np.concatenate([np.asarray(times), np.asarray(switch_times)]))
             events = [self.make_event_switch(t) for t in switch_times]
-            
-            # Handle edge case where t_span has identical start and end times 
+
+            # Handle edge case where t_span has identical start and end times
             # Only use minimal solution if we're asking for initial conditions at t=0
             if t_span[0] == t_span[1] and times[0] == 0.0:
                 # For t=0 only, just return initial conditions
@@ -159,7 +159,7 @@ class ScipyModel(OdeModel):
                     def __init__(self, t, y_init):
                         self.t = np.array([t])
                         self.y = y_init.reshape(-1, 1)  # Shape: (n_states, 1)
-                
+
                 sol = MockSolutionMinimal(times[0], y_init)
             elif t_span[0] == t_span[1]:
                 # For single time point not at 0, integrate from 0 to that point
@@ -172,7 +172,7 @@ class ScipyModel(OdeModel):
                     vectorized=use_vectorized,
                     method=method,
                 )
-                
+
                 # Ensure solution arrays are numpy arrays
                 sol.t = np.asarray(sol.t)
                 sol.y = np.asarray(sol.y)
@@ -186,7 +186,7 @@ class ScipyModel(OdeModel):
                     events=events,
                     method=method,
                 )
-                
+
                 # Ensure solution arrays are numpy arrays (scipy.solve_ivp sometimes returns lists for single points)
                 sol.t = np.asarray(sol.t)
                 sol.y = np.asarray(sol.y)
@@ -321,12 +321,12 @@ class ScipyModel(OdeModel):
                 func_name = ff["function"]
                 args = ff.get("args", ())
                 kwargs = ff.get("kwargs", {})
-                
+
                 # Use unified forcing function factory for all forcing functions
                 input_functions[input_name] = UnifiedForcingFactory.create_forcing_function(
                     func_name, backend=self.backend, **kwargs
                 )
-            else: # pragma: no cover
+            else:  # pragma: no cover
                 # Direct callable (already a function)
                 input_functions[input_name] = ff
 

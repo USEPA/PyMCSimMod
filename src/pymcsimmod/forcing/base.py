@@ -10,12 +10,12 @@ class ForcingFunction(ABC):
     @abstractmethod
     def create_function(self, backend: str = "scipy") -> Callable:
         """Create the forcing function for the specified backend."""
-        pass # pragma: no cover
+        pass  # pragma: no cover
 
     @abstractmethod
     def get_switch_times(self, t_start: float, t_end: float) -> list[float]:
         """Get times when this forcing function changes behavior."""
-        pass # pragma: no cover
+        pass  # pragma: no cover
 
 
 class BackendAwareForcing(ForcingFunction):
@@ -33,7 +33,7 @@ class BackendAwareForcing(ForcingFunction):
     @abstractmethod
     def _create_backend_function(self, backend: str) -> Callable:
         """Create the backend-specific function implementation."""
-        pass # pragma: no cover
+        pass  # pragma: no cover
 
 
 class OnOffForcing(BackendAwareForcing):

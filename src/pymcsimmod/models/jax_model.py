@@ -32,7 +32,7 @@ class EqxModel(eqx.Module):
     def compile_forcing_functions(self) -> None:
         """Convert all dict-based forcing functions to JIT-compiled callables using unified backend."""
         from ..forcing.unified import UnifiedForcingFactory
-        
+
         # Create a new dict to avoid mutating during iteration
         compiled_functions = {}
         for input_name, ff in self.forcing_functions.items():
@@ -43,7 +43,7 @@ class EqxModel(eqx.Module):
                 func_name = ff["function"]
                 args = ff.get("args", ())
                 kwargs = ff.get("kwargs", {})
-                
+
                 # Use unified forcing function factory for all forcing functions
                 compiled_functions[input_name] = UnifiedForcingFactory.create_forcing_function(
                     func_name, backend=self.backend, **kwargs
@@ -178,7 +178,7 @@ class EqxModel(eqx.Module):
 
 class JaxModel(OdeModel):
     """JAX-based ODE model implementation."""
-    
+
     backend = BackendType.JAX
 
     def __init__(self, model: str | Path):

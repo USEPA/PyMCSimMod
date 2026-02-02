@@ -18,7 +18,7 @@ def data_path() -> Path:
 
 # --- Backend Fixtures ---
 @pytest.fixture(scope="session")
-def available_backends() -> Dict[str, bool]:
+def available_backends() -> dict[str, bool]:
     """Detect and cache available backends for the test session."""
     return detect_available_backends()
 
@@ -29,9 +29,9 @@ def has_scipy(available_backends) -> bool:
     return available_backends["scipy"]
 
 
-@pytest.fixture(scope="session")  
+@pytest.fixture(scope="session")
 def has_jax(available_backends) -> bool:
-    """Whether JAX backend is available.""" 
+    """Whether JAX backend is available."""
     return available_backends["jax"]
 
 
@@ -245,7 +245,7 @@ def short_times() -> np.ndarray:
 
 
 @pytest.fixture
-def event_times() -> List[float]:
+def event_times() -> list[float]:
     """Standard event times for discrete event testing."""
     return [1.0, 3.0, 7.0, 9.0]
 
@@ -267,6 +267,7 @@ def complex_scipy_model(complex_pk_model_str, skip_if_no_scipy) -> ScipyModel:
 def simple_jax_model(simple_pk_model_str, skip_if_no_jax):
     """Create a JAX model instance for testing."""
     from pymcsimmod.models.jax_model import JaxModel
+
     return JaxModel(simple_pk_model_str)
 
 
@@ -274,12 +275,13 @@ def simple_jax_model(simple_pk_model_str, skip_if_no_jax):
 def complex_jax_model(complex_pk_model_str, skip_if_no_jax):
     """Create a complex JAX model instance for testing."""
     from pymcsimmod.models.jax_model import JaxModel
+
     return JaxModel(complex_pk_model_str)
 
 
 # --- Event Fixtures ---
 @pytest.fixture
-def sample_events(event_times) -> List[DiscreteEvent]:
+def sample_events(event_times) -> list[DiscreteEvent]:
     """Create sample discrete events for testing."""
     return [
         DiscreteEvent(time=event_times[0], state_var="A", value=10.0),
@@ -296,7 +298,7 @@ def single_event() -> DiscreteEvent:
 
 # --- Parameter and Initial Condition Fixtures ---
 @pytest.fixture
-def standard_parameters() -> Dict[str, float]:
+def standard_parameters() -> dict[str, float]:
     """Standard parameter set for testing."""
     return {
         "ka": 1.0,
@@ -306,8 +308,8 @@ def standard_parameters() -> Dict[str, float]:
 
 
 @pytest.fixture
-def alternative_parameters() -> Dict[str, float]:
-    """Alternative parameter set for comparison testing.""" 
+def alternative_parameters() -> dict[str, float]:
+    """Alternative parameter set for comparison testing."""
     return {
         "ka": 2.0,
         "ke": 0.5,
@@ -316,7 +318,7 @@ def alternative_parameters() -> Dict[str, float]:
 
 
 @pytest.fixture
-def standard_initial_conditions() -> Dict[str, float]:
+def standard_initial_conditions() -> dict[str, float]:
     """Standard initial conditions for testing."""
     return {
         "A": 0.0,
@@ -327,7 +329,7 @@ def standard_initial_conditions() -> Dict[str, float]:
 
 
 @pytest.fixture
-def nonzero_initial_conditions() -> Dict[str, float]:
+def nonzero_initial_conditions() -> dict[str, float]:
     """Non-zero initial conditions for testing."""
     return {
         "A": 10.0,
@@ -339,30 +341,27 @@ def nonzero_initial_conditions() -> Dict[str, float]:
 
 # --- Forcing Function Data Fixtures ---
 @pytest.fixture
-def onoff_forcing_params() -> Dict[str, float]:
+def onoff_forcing_params() -> dict[str, float]:
     """Standard OnOff forcing function parameters."""
     return {"t0": 1.0, "t1": 5.0, "s": 10.0}
 
 
 @pytest.fixture
-def perdose_forcing_params() -> Dict[str, float]:
+def perdose_forcing_params() -> dict[str, float]:
     """Standard PerDose forcing function parameters."""
     return {"t0": 0.0, "duration": 1.0, "period": 24.0, "s": 10.0}
 
 
 @pytest.fixture
-def ndoses_forcing_params() -> Dict:
+def ndoses_forcing_params() -> dict:
     """Standard NDoses forcing function parameters."""
     return {"t0_list": [1.0, 25.0, 49.0], "duration": 1.0, "s": 10.0}
 
 
 @pytest.fixture
-def interpolation_data() -> Dict[str, List[float]]:
+def interpolation_data() -> dict[str, list[float]]:
     """Standard interpolation data for forcing functions."""
-    return {
-        "times": [0.0, 2.0, 4.0, 6.0, 8.0, 10.0],
-        "values": [0.0, 5.0, 10.0, 8.0, 3.0, 0.0]
-    }
+    return {"times": [0.0, 2.0, 4.0, 6.0, 8.0, 10.0], "values": [0.0, 5.0, 10.0, 8.0, 3.0, 0.0]}
 
 
 @pytest.fixture(scope="session")
