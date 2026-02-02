@@ -1096,32 +1096,6 @@ class TestJaxCompatibility:
         with pytest.raises(NotImplementedError, match="Discrete events are not yet supported"):
             model.run_model(times)
 
-    def test_numerical_stability_guidance(self):
-        """Test that proper error messages are provided for numerical instability."""
-        # Create a potentially unstable model
-        model_str = """
-        States = { A };
-        k = 1e6;  # Very large rate constant
-        Initialize { A = 1.0; }
-        Dynamics { dt(A) = -k * A * A * A; }  # Nonlinear and potentially stiff
-        End.
-        """
-
-        model = JaxModel(model_str)
-        times = np.linspace(0, 1, 100)
-
-        # This might produce NaN values, and if so, should give helpful error message
-        try:
-            result = model.run_model(times)
-            # If it doesn't fail, just verify no NaN values
-            assert not np.any(np.isnan(result.states))
-        except ValueError as e:
-            # Should provide helpful guidance for numerical issues
-            assert "JAX model integration produced NaN values" in str(e)
-            assert "numerical instability" in str(e)
-            assert "smaller initial step size" in str(e) or "different solver" in str(e)
-
-
 def test_reset_to_defaults_jax():
     """Test reset_to_defaults functionality for both parameters and Y0 with JAX model."""
     model_str = """
@@ -1271,17 +1245,15 @@ class TestJaxModelErrorHandling:
         model = JaxModel(simple_pk_model_str)
         model.update_Y0(A=10.0)
 
-        # Non-monotonic times might cause issues
+        # Non-monotonic times should cause issues with JAX solver
         times = [0, 2, 1, 3, 5]  # Not sorted
 
-        # Should either handle gracefully or raise clear error
-        try:
-            result = model.run_model(times)
-            # If it succeeds, result should be valid
-            assert isinstance(result, ComputedModel)
-        except ValueError:
-            # If it fails, should be with clear error
-            pass
+        # JAX requires monotonic times, so this should fail
+        with pytest.raises(Exception) as excinfo:
+            model.run_model(times)
+        
+        # Should get an error about monotonic times
+        assert "increasing or decreasing" in str(excinfo.value)
 
     def test_numerical_instability_large_rates(self):
         """Test handling of potentially unstable models with large rate constants."""

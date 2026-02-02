@@ -36,6 +36,8 @@ class OdeModel(ABC):
 
         parser = ModelParser()
         parsed_model = parser.parse(model_str)
+        if parsed_model is None:
+            raise ValueError("Failed to parse model. Please check model syntax.")
         self.model_tree = parsed_model.model_copy()
 
         # Once model is loaded, initialize the model parameters and initial conditions
