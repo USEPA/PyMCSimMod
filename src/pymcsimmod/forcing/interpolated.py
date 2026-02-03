@@ -171,11 +171,7 @@ class InterpolatedForcing(BackendAwareForcing):
             # Convert input using backend
             t = backend.asarray(t)
 
-            # Handle scalar input
-            if np.isscalar(t):
-                return float(interpolator(t))
-
-            # Handle array input
+            # Handle both scalar and array input
             return interpolator(t)
 
         return backend.compile_function(interpolation_func)

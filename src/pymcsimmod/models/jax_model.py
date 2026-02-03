@@ -10,7 +10,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from ..extra_typing import NumericArray
+from ..config import BackendType
 from ..model import Approach
 from .base import OdeModel
 from .computed import ComputedModel
@@ -26,93 +26,12 @@ class EqxModel(eqx.Module):
     model_tree: Any = eqx.field(static=True)
     state_names: tuple[str, ...] = eqx.field()
     output_names: tuple[str, ...] = eqx.field()
-
-    @staticmethod
-    @jax.jit
-    def OnOff(t: float, t0: float, t1: float, s: float = 10.0) -> jnp.ndarray:
-        """JAX-compiled on-off forcing function."""
-        t = jnp.asarray(t)
-        t0 = jnp.asarray(t0)
-        t1 = jnp.asarray(t1)
-        return (jnp.tanh(s * (t - t0)) - jnp.tanh(s * (t - t1))) / 2
-
-    @staticmethod
-    def PerDose(
-        t0: float, duration: float, period: float, s: float = 10.0
-    ) -> Callable[[float], jnp.ndarray]:
-        """JAX-compiled periodic dosing function."""
-        t0 = float(t0)
-        duration = float(duration)
-        period = float(period)
-
-        @jax.jit
-        def func(t):
-            t = jnp.asarray(t)
-            n = jnp.floor((t - t0) / period)
-            start = t0 + n * period
-            stop = start + duration
-            return EqxModel.OnOff(t, start, stop, s)
-
-        return func
-
-    @staticmethod
-    def NDoses(
-        t0_list: Sequence[float], duration: float, s: float = 10.0
-    ) -> Callable[[float], jnp.ndarray]:
-        """JAX-compiled multiple dosing function."""
-        t0_arr = jnp.array(t0_list)
-        duration = float(duration)
-
-        @jax.jit
-        def func(t):
-            t = jnp.asarray(t)
-            return jnp.sum(EqxModel.OnOff(t, t0_arr, t0_arr + duration, s), axis=-1)
-
-        return func
-
-    @staticmethod
-    def InterpolatedForcing(
-        times: NumericArray, values: NumericArray, **kwargs: Any
-    ) -> Callable[[float], jnp.ndarray]:
-        """
-        Create an interpolated forcing function from time-value data for JAX.
-
-        Args:
-            times: Array-like of time points.
-            values: Array-like of corresponding values.
-            **kwargs: Additional parameters for InterpolatedForcing (e.g., interpolation_method).
-
-        Returns:
-            JAX-compiled callable function for the interpolated forcing.
-        """
-        from ..forcing.interpolated import InterpolatedForcing
-
-        forcing = InterpolatedForcing(times, values, **kwargs)
-        return forcing.create_function("jax")
-
-    @staticmethod
-    def ZeroFunc() -> Callable[[float], float]:
-        """JAX-compiled zero function."""
-
-        @jax.jit
-        def func(t):
-            return 0.0
-
-        return func
-
-    @staticmethod
-    def ConstFunc(value: float) -> Callable[[float], float]:
-        """JAX-compiled constant function."""
-        value = float(value)  # Ensure value is a float for JAX compatibility
-
-        @jax.jit
-        def func(t):
-            return value
-
-        return func
+    backend: BackendType = eqx.field(static=True, default=BackendType.JAX)
 
     def compile_forcing_functions(self) -> None:
-        """Convert all dict-based forcing functions to JIT-compiled callables."""
+        """Convert all dict-based forcing functions to JIT-compiled callables using unified backend."""
+        from ..forcing.unified import UnifiedForcingFactory
+
         # Create a new dict to avoid mutating during iteration
         compiled_functions = {}
         for input_name, ff in self.forcing_functions.items():
@@ -121,12 +40,12 @@ class EqxModel(eqx.Module):
             if hasattr(ff, "get") and hasattr(ff, "__getitem__") and "function" in ff:
                 # It's a forcing function specification dict
                 func_name = ff["function"]
-                args = ff.get("args", ())
                 kwargs = ff.get("kwargs", {})
-                func_factory = getattr(self, func_name, None)
-                if func_factory is None or not callable(func_factory):
-                    raise AttributeError(f"Forcing function '{func_name}' not found in EqxModel.")
-                compiled_functions[input_name] = func_factory(*args, **kwargs)
+
+                # Use unified forcing function factory for all forcing functions
+                compiled_functions[input_name] = UnifiedForcingFactory.create_forcing_function(
+                    func_name, backend=self.backend, **kwargs
+                )
             else:
                 # It's already a compiled function or other callable
                 compiled_functions[input_name] = ff
@@ -205,11 +124,11 @@ class EqxModel(eqx.Module):
         ode_term = diffrax.ODETerm(ode_rhs)
         # Use provided solver or default to Dopri8
         if solver is None:
-            solver = diffrax.Dopri8()
+            solver = diffrax.Kvaerno5()
 
         # Use adaptive step size control with specified tolerances for better accuracy
         stepsize_controller = diffrax.PIDController(rtol=rtol, atol=atol)
-        saveat = diffrax.SaveAt(ts=jnp.linspace(t0, t_end, len(times)))
+        saveat = diffrax.SaveAt(ts=jnp.array(times))
         sol = diffrax.diffeqsolve(
             ode_term,
             solver,
@@ -257,6 +176,8 @@ class EqxModel(eqx.Module):
 
 class JaxModel(OdeModel):
     """JAX-based ODE model implementation."""
+
+    backend = BackendType.JAX
 
     def __init__(self, model: str | Path):
         """

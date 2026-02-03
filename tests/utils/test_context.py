@@ -316,7 +316,7 @@ class TestContextUtilityIntegration:
 
         model = ScipyModel(model_str)
         model.parameters["k1"] = 0.1
-        model.forcing_functions["dose"] = model.ZeroFunc()
+        model.assign_forcing_function("dose", "ZeroFunc")
 
         # The model should use context utilities internally
         times = np.linspace(0, 10, 101)

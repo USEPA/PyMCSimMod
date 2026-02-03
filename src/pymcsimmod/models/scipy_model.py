@@ -7,7 +7,8 @@ from typing import Any
 import numpy as np
 import scipy.integrate as sci
 
-from ..extra_typing import NumericArray
+from ..config import BackendType
+from ..forcing.unified import UnifiedForcingFactory
 from ..model import Approach
 from ..utils.context import build_evaluation_context
 from .base import OdeModel
@@ -16,6 +17,8 @@ from .computed import ComputedModel
 
 class ScipyModel(OdeModel):
     """ODE model implementation using scipy.integrate.solve_ivp."""
+
+    backend = BackendType.SCIPY
 
     def __init__(self, model: str | Path):
         """
@@ -30,125 +33,6 @@ class ScipyModel(OdeModel):
         """Get the evaluation approach for ScipyModel."""
         return Approach.SCIPY
 
-    @staticmethod
-    def OnOff(t0: float, t1: float, s: float = 10.0) -> Callable[[float], float]:
-        """
-        On-off forcing function.
-
-        Args:
-            t0: time when function turns on
-            t1: time when function turns off
-            s: smoothing parameter (default: 10.0)
-
-        Returns:
-            Function that takes time t and returns on/off value between 0 and 1.
-        """
-
-        def func(t: float) -> float:
-            y = (np.tanh(s * (t - t0)) - np.tanh(s * (t - t1))) / 2
-            return y
-
-        return func
-
-    @staticmethod
-    def PerDose(
-        t0: float, duration: float, period: float, s: float = 10.0
-    ) -> Callable[[float], float]:
-        """
-        Returns a function of t for periodic dosing using OnOff, with parameters fixed.
-
-        Args:
-            t0: Time of first dose.
-            duration: Duration of each dose.
-            period: Period between doses.
-            s: smoothing parameter (default: 10.0)
-
-        Returns:
-            Function that takes time t and returns dose value.
-        """
-
-        def func(t: float) -> float:
-            if t < t0:
-                return 0.0
-            n = int((t - t0) // period)
-            start = t0 + n * period
-            stop = start + duration
-            return ScipyModel.OnOff(start, stop, s)(t)
-
-        return func
-
-    @staticmethod
-    def ZeroFunc() -> Callable[[float], float]:
-        """
-        Default static method for forcing functions: always returns zero for any t input.
-
-        Returns:
-            Function that always returns 0.0.
-        """
-
-        def func(t: float) -> float:
-            return 0.0
-
-        return func
-
-    @staticmethod
-    def ConstFunc(value: float) -> Callable[[float], float]:
-        """
-        Static method for constant forcing functions: always returns the specified value for any t input.
-
-        Args:
-            value: The constant value to return.
-
-        Returns:
-            Function that always returns the specified constant value.
-        """
-
-        def func(t: float) -> float:
-            return float(value)
-
-        return func
-
-    @staticmethod
-    def NDoses(
-        t0_list: Sequence[float], duration: float, s: float = 10.0
-    ) -> Callable[[float], float]:
-        """
-        Returns a function of t for multiple dosing using OnOff, with parameters fixed.
-
-        Args:
-            t0_list: List of dose start times.
-            duration: Duration of each dose.
-            s: smoothing parameter (default: 10.0)
-
-        Returns:
-            Function that takes time t and returns dose value.
-        """
-
-        def func(t: float) -> float:
-            return sum(ScipyModel.OnOff(t0, t0 + duration, s)(t) for t0 in t0_list)
-
-        return func
-
-    @staticmethod
-    def InterpolatedForcing(
-        times: NumericArray, values: NumericArray, **kwargs: Any
-    ) -> Callable[[float], float]:
-        """
-        Create an interpolated forcing function from time-value data.
-
-        Args:
-            times: Array-like of time points.
-            values: Array-like of corresponding values.
-            **kwargs: Additional parameters for InterpolatedForcing (e.g., interpolation_method).
-
-        Returns:
-            Callable function for the interpolated forcing.
-        """
-        from ..forcing.interpolated import InterpolatedForcing
-
-        forcing = InterpolatedForcing(times, values, **kwargs)
-        return forcing.create_function("scipy")
-
     def build_context(self, state_vals: np.ndarray, t: float) -> dict[str, Any]:
         """
         Build the context dictionary for a given state vector and time.
@@ -162,6 +46,7 @@ class ScipyModel(OdeModel):
         Returns:
             Dictionary containing all variables for expression evaluation.
         """
+
         # Calculate forcing function values
         forcing_values = {}
         for input_name, ff in self.forcing_functions.items():
@@ -169,13 +54,14 @@ class ScipyModel(OdeModel):
                 func_name = ff["function"]
                 args = ff.get("args", ())
                 kwargs = ff.get("kwargs", {})
-                func_factory = getattr(self, func_name, None)
-                if func_factory is None or not callable(func_factory):
-                    raise AttributeError(f"Forcing function '{func_name}' not found in ScipyModel.")
-                func = func_factory(*args, **kwargs)
+
+                # Use unified forcing function factory for all forcing functions
+                func = UnifiedForcingFactory.create_forcing_function(
+                    func_name, backend=self.backend, args=args, **kwargs
+                )
                 forcing_values[input_name] = func(t)
-            else:
-                # fallback for legacy or direct function (should not occur with new logic)
+            else:  # pragma: no cover
+                # Direct callable (fallback for compatibility)
                 forcing_values[input_name] = ff(t)
 
         # Use the context utility to build the base context
@@ -257,20 +143,52 @@ class ScipyModel(OdeModel):
 
         # Get all switch times (forcing functions + events)
         switch_times = self.extract_switch_times(self.forcing_functions, times[0], times[-1])
+
         # If no events, use the original method
         if not self.events:
             t_span = np.array([times[0], times[-1]])
             all_times = np.unique(np.concatenate([np.asarray(times), np.asarray(switch_times)]))
             events = [self.make_event_switch(t) for t in switch_times]
-            sol = sci.solve_ivp(
-                fun=self.model,
-                t_span=t_span,
-                y0=y_init,
-                t_eval=all_times,
-                vectorized=use_vectorized,
-                events=events,
-                method=method,
-            )
+
+            # Handle edge case where t_span has identical start and end times
+            # Only use minimal solution if we're asking for initial conditions at t=0
+            if t_span[0] == t_span[1] and times[0] == 0.0:
+                # For t=0 only, just return initial conditions
+                class MockSolutionMinimal:
+                    def __init__(self, t, y_init):
+                        self.t = np.array([t])
+                        self.y = y_init.reshape(-1, 1)  # Shape: (n_states, 1)
+
+                sol = MockSolutionMinimal(times[0], y_init)
+            elif t_span[0] == t_span[1]:
+                # For single time point not at 0, integrate from 0 to that point
+                t_span_corrected = [0.0, times[0]] if times[0] > 0.0 else [times[0], 0.0]
+                sol = sci.solve_ivp(
+                    fun=self.model,
+                    t_span=t_span_corrected,
+                    y0=y_init,
+                    t_eval=times,
+                    vectorized=use_vectorized,
+                    method=method,
+                )
+
+                # Ensure solution arrays are numpy arrays
+                sol.t = np.asarray(sol.t)
+                sol.y = np.asarray(sol.y)
+            else:
+                sol = sci.solve_ivp(
+                    fun=self.model,
+                    t_span=t_span,
+                    y0=y_init,
+                    t_eval=all_times,
+                    vectorized=use_vectorized,
+                    events=events,
+                    method=method,
+                )
+
+                # Ensure solution arrays are numpy arrays (scipy.solve_ivp sometimes returns lists for single points)
+                sol.t = np.asarray(sol.t)
+                sol.y = np.asarray(sol.y)
         else:
             # Handle discrete events using deSolve-inspired approach
             from .event_utils import apply_events_at_time, check_events
@@ -369,19 +287,16 @@ class ScipyModel(OdeModel):
                 # Create a mock solution object compatible with the rest of the code
                 class MockSolution:
                     def __init__(self, t, y):
-                        self.t = t
-                        self.y = y
+                        self.t = np.asarray(t)  # Ensure t is always a numpy array
+                        self.y = np.asarray(y)  # Ensure y is always a numpy array
 
                 sol = MockSolution(combined_times, combined_states)
             else:
-                # Fallback if no segments
-                sol = sci.solve_ivp(
-                    fun=self.model,
-                    t_span=[times[0], times[-1]],
-                    y0=y_init,
-                    t_eval=times,
-                    vectorized=use_vectorized,
-                    method=method,
+                # This should not happen with proper segment creation
+                raise RuntimeError(
+                    "No segments could be integrated. This indicates an issue with event "
+                    "timing or segment creation logic. Please check your discrete events "
+                    "and evaluation time points."
                 )
 
         self.sol = sol  # Store the raw solution with ScipyModel
@@ -404,12 +319,14 @@ class ScipyModel(OdeModel):
             if isinstance(ff, dict) and "function" in ff:
                 func_name = ff["function"]
                 kwargs = ff.get("kwargs", {})
-                func_factory = getattr(self, func_name, None)
-                if func_factory is None or not callable(func_factory):
-                    raise AttributeError(f"Forcing function '{func_name}' not found in ScipyModel.")
-                input_functions[input_name] = func_factory(*ff.get("args", ()), **kwargs)
-            else:
-                input_functions[input_name] = ff  # already a callable
+
+                # Use unified forcing function factory for all forcing functions
+                input_functions[input_name] = UnifiedForcingFactory.create_forcing_function(
+                    func_name, backend=self.backend, **kwargs
+                )
+            else:  # pragma: no cover
+                # Direct callable (already a function)
+                input_functions[input_name] = ff
 
         return ComputedModel(
             times=sol.t,
