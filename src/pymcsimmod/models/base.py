@@ -422,7 +422,7 @@ class OdeModel(ABC):
                 # For JAX: will be JIT-compiled and ready for use
                 # For SciPy: will be a regular callable
                 compiled_functions[input_name] = UnifiedForcingFactory.create_forcing_function(
-                    func_name, backend, args, **kwargs
+                    func_name, backend, args=args, **kwargs
                 )
             else:
                 # Already a compiled function or other callable
