@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from pymcsimmod.models.events import DiscreteEvent
+from pymcsimmod.events import DiscreteEvent
 from pymcsimmod.models.jax_model import JaxModel
 from pymcsimmod.models.scipy_model import ScipyModel
 

@@ -11,10 +11,10 @@ except ImportError:
     pd = None
 
 from ..config import BackendType
+from ..events.base import DiscreteEvent
 from ..model import Approach, InitializeSection
 from ..parser import ModelParser
 from .computed import ComputedModel
-from .events import DiscreteEvent
 
 
 class OdeModel(ABC):
@@ -358,11 +358,8 @@ class OdeModel(ABC):
         Returns:
             Updated state dictionary after applying events.
         """
-        # Apply events in order (already sorted by time)
-        for event in self.events:
-            if abs(event.time - t) < 1e-12:  # Use small tolerance for floating point comparison
-                state_dict = event.apply(state_dict, self.state_names)
-        return state_dict
+        from ..events.utils import apply_events_at_time as _apply
+        return _apply(t, state_dict, self.events)
 
     def assign_forcing_function(self, input_name, forcing_function_name=None, *args, **kwargs):
         """
@@ -510,71 +507,10 @@ class OdeModel(ABC):
         Returns:
             Sorted list of switch times within [t_start, t_end].
         """
-        switch_times = set()
+        from ..forcing.unified import extract_forcing_switch_times
 
-        # Add forcing function switch times
-        for ff in forcing_functions.values():
-            if isinstance(ff, dict) and "function" in ff:
-                func = ff["function"]
-                kwargs = ff.get("kwargs", {})
-                if func == "PerDose":
-                    t0 = kwargs["t0"]
-                    duration = kwargs["duration"]
-                    period = kwargs["period"]
-                    n = 0
-                    while True:
-                        on = t0 + n * period
-                        off = on + duration
-                        if on > t_end:
-                            break
-                        if on >= t_start:
-                            switch_times.add(on)
-                        if off >= t_start and off <= t_end:
-                            switch_times.add(off)
-                        n += 1
-                elif func == "NDoses":
-                    t0_list = kwargs["t0_list"]
-                    duration = kwargs["duration"]
-                    for t0 in t0_list:
-                        on = t0
-                        off = t0 + duration
-                        if on >= t_start and on <= t_end:
-                            switch_times.add(on)
-                        if off >= t_start and off <= t_end:
-                            switch_times.add(off)
-                elif func == "OnOff":
-                    t0 = kwargs["t0"]
-                    t1 = kwargs["t1"]
-                    if t0 >= t_start and t0 <= t_end:
-                        switch_times.add(t0)
-                    if t1 >= t_start and t1 <= t_end:
-                        switch_times.add(t1)
-                elif func in ["InterpolatedForcing", "Interpolate"]:
-                    # For interpolated forcing, extract times from different data formats
-                    times_data = []
-
-                    # Check args for times array (legacy format)
-                    if len(ff.get("args", [])) > 0:
-                        times_data = ff["args"][0]
-                    # Check kwargs for various time data formats
-                    elif "data_dict" in kwargs and "time" in kwargs["data_dict"]:
-                        times_data = kwargs["data_dict"]["time"]
-                    elif "times" in kwargs:
-                        times_data = kwargs["times"]
-                    elif "dataframe" in kwargs:
-                        df = kwargs["dataframe"]
-                        time_col = kwargs.get("time_col", "time")
-                        if hasattr(df, "columns") and time_col in df.columns:
-                            times_data = df[time_col].tolist()
-
-                    for t in times_data:
-                        if t >= t_start and t <= t_end:
-                            switch_times.add(t)
-
-        # Add event times
-        event_times = self.get_event_times(t_start, t_end)
-        switch_times.update(event_times)
-
+        switch_times = extract_forcing_switch_times(forcing_functions, t_start, t_end)
+        switch_times.update(self.get_event_times(t_start, t_end))
         return sorted(switch_times)
 
     @abstractmethod

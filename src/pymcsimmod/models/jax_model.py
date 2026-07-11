@@ -55,19 +55,29 @@ class EqxModel(eqx.Module):
         object.__setattr__(self, "forcing_functions", compiled_functions)
 
     def build_context(self, state_vals: jnp.ndarray, t: float) -> dict[str, Any]:
-        """Build context dictionary for expression evaluation (JAX-compatible)."""
-        # Note: We cannot use the general context utility here because JAX requires
-        # fixed structure and pure functions for JIT compilation
-        context = {name: state_vals[i] for i, name in enumerate(self.state_names)}
-        context.update(self.parameters)
-        for input_name, ff in self.forcing_functions.items():
-            context[input_name] = ff(t)
-        # Evaluate all dynamic calcs
-        for var, expr in self.model_tree.dynamic_calcs.items():
-            context[var] = expr.evaluate(context, Approach.JAX)
+        """Build context dictionary for expression evaluation (JAX-compatible).
+
+        Delegates to the shared ``build_evaluation_context`` utility from
+        ``pymcsimmod.utils.context``. The function is pure (no side effects),
+        so JAX-JIT compilation and autodiff via ``jax.grad`` are preserved.
+        """
+        from ..utils.context import build_evaluation_context
+
+        forcing_values = {name: ff(t) for name, ff in self.forcing_functions.items()}
+
+        context = build_evaluation_context(
+            state_vals=state_vals,
+            state_names=self.state_names,
+            parameters=self.parameters,
+            forcing_values=forcing_values,
+            dynamic_calcs=self.model_tree.dynamic_calcs,
+            approach=Approach.JAX,
+        )
+
         if hasattr(self.model_tree, "calc_outputs"):
             for var, expr in self.model_tree.calc_outputs.items():
                 context[var] = expr.evaluate(context, Approach.JAX)
+
         return context
 
     @eqx.filter_jit
@@ -112,7 +122,7 @@ class EqxModel(eqx.Module):
             events = self.events
 
         if events:
-            from .event_utils import check_events
+            from ..events.utils import check_events
 
             validated_events, modified_times = check_events(
                 events, np.asarray(times), list(self.state_names)

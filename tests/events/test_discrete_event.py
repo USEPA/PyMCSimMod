@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from pymcsimmod.models.events import DiscreteEvent
+from pymcsimmod.events import DiscreteEvent
 
 
 class TestDiscreteEvent:

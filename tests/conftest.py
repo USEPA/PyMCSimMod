@@ -6,7 +6,7 @@ matplotlib.use('Agg')
 import numpy as np
 import pytest
 
-from pymcsimmod.models.events import DiscreteEvent
+from pymcsimmod.events import DiscreteEvent
 from pymcsimmod.models.scipy_model import ScipyModel
 from pymcsimmod.utils.backends import detect_available_backends
 

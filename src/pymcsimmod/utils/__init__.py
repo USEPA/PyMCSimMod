@@ -10,8 +10,6 @@ from .backends import (
 from .context import build_evaluation_context, merge_contexts, validate_context
 from .switch_times import (
     combine_switch_times,
-    extract_event_times,
-    extract_forcing_switch_times,
     validate_switch_times,
 )
 
@@ -20,8 +18,6 @@ __all__ = [
     "build_evaluation_context",
     "combine_switch_times",
     "detect_available_backends",
-    "extract_event_times",
-    "extract_forcing_switch_times",
     "get_backend_capabilities",
     "merge_contexts",
     "recommend_backend",

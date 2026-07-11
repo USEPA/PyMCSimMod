@@ -1,11 +1,13 @@
-"""Forcing functions."""
+"""Forcing functions.
+
+Continuous forcing types (OnOff, PerDose, NDoses) are accessible via
+``model.assign_forcing_function()`` or directly through ``UnifiedForcingFactory``.
+For data-driven interpolated forcing, use ``InterpolatedForcing``.
+"""
 
 from .base import (
     BackendAwareForcing,
     ForcingFunction,
-    MultiDoseForcing,
-    OnOffForcing,
-    PeriodicForcing,
     create_forcing_function,
 )
 from .interpolated import InterpolatedForcing, create_interpolated_forcing
@@ -21,6 +23,7 @@ from .unified import (
     create_onoff,
     create_perdose,
     create_zerofunc,
+    extract_forcing_switch_times,
 )
 
 __all__ = [
@@ -29,9 +32,6 @@ __all__ = [
     "ForcingFunction",
     "InterpolatedForcing",
     "JAXBackend",
-    "MultiDoseForcing",
-    "OnOffForcing",
-    "PeriodicForcing",
     "PyTorchBackend",
     "ScipyBackend",
     "TensorFlowBackend",
@@ -43,4 +43,5 @@ __all__ = [
     "create_onoff",
     "create_perdose",
     "create_zerofunc",
+    "extract_forcing_switch_times",
 ]
