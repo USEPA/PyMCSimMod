@@ -12,9 +12,9 @@ import jax
 import jax.numpy as jnp
 
 from pymcsimmod.config import BackendType
+from pymcsimmod.events import DiscreteEvent
 from pymcsimmod.forcing.unified import UnifiedForcingFactory
 from pymcsimmod.models.computed import ComputedModel
-from pymcsimmod.events import DiscreteEvent
 from pymcsimmod.models.jax_model import EqxModel, JaxModel
 
 

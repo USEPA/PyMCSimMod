@@ -111,7 +111,7 @@ class NDoses(BaseEventScheduler):
             if t_start <= t0 <= t_end:
                 val = (
                     self.value[i]
-                    if isinstance(self.value, (list, tuple, np.ndarray))
+                    if isinstance(self.value, list | tuple | np.ndarray)
                     else self.value
                 )
                 events.append(
@@ -268,9 +268,7 @@ class DataFrameEventScheduler(BaseEventScheduler):
             t = float(row[self.time_col])
             val = float(row[self.value_col])
             meth = (
-                str(row[self.method_col])
-                if self.method_col in df_filtered.columns
-                else self.method
+                str(row[self.method_col]) if self.method_col in df_filtered.columns else self.method
             )
             s_var = str(row["state_var"]) if "state_var" in df_filtered.columns else state_var
             events.append(

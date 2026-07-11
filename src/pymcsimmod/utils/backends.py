@@ -120,11 +120,11 @@ def get_backend_capabilities(backend: str) -> dict[str, bool]:
         },
         # --- Future backend templates (not yet implemented) ---
         BackendType.TENSORFLOW: {
-            "discrete_events": False,   # Not yet implemented
+            "discrete_events": False,  # Not yet implemented
             "forcing_functions": False,  # Not yet implemented
             "adaptive_stepping": False,
             "event_detection": False,
-            "jit_compilation": True,    # tf.function
+            "jit_compilation": True,  # tf.function
             "automatic_differentiation": True,  # tf.GradientTape
         },
         BackendType.PYTORCH: {
@@ -132,7 +132,7 @@ def get_backend_capabilities(backend: str) -> dict[str, bool]:
             "forcing_functions": False,
             "adaptive_stepping": False,
             "event_detection": False,
-            "jit_compilation": False,   # torch.jit.script (limited)
+            "jit_compilation": False,  # torch.jit.script (limited)
             "automatic_differentiation": True,  # autograd
         },
     }

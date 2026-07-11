@@ -1,6 +1,5 @@
 """Test base forcing functions and factory functionality."""
 
-import numpy as np
 import pytest
 
 from src.pymcsimmod.forcing.base import (
@@ -257,9 +256,7 @@ class TestCreateForcingFunction:
         """Test 'interp' alias for interpolated forcing."""
         from src.pymcsimmod.forcing.interpolated import InterpolatedForcing
 
-        forcing = create_forcing_function(
-            "interp", times=[0, 1, 2], values=[10, 20, 30]
-        )
+        forcing = create_forcing_function("interp", times=[0, 1, 2], values=[10, 20, 30])
         assert isinstance(forcing, InterpolatedForcing)
 
     def test_unknown_forcing_type_raises_error(self):

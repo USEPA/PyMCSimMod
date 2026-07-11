@@ -294,10 +294,12 @@ class OdeModel(ABC):
             self._event_schedulers = {}
 
         from ..events.base import BaseEventScheduler
+
         if isinstance(event_type, BaseEventScheduler):
             scheduler = event_type
         else:
             from ..events.base import create_event_scheduler
+
             scheduler = create_event_scheduler(event_type, *args, **kwargs)
 
         self._event_schedulers[state_var] = [scheduler]
@@ -359,6 +361,7 @@ class OdeModel(ABC):
             Updated state dictionary after applying events.
         """
         from ..events.utils import apply_events_at_time as _apply
+
         return _apply(t, state_dict, self.events)
 
     def assign_forcing_function(self, input_name, forcing_function_name=None, *args, **kwargs):

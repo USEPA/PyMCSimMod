@@ -1,10 +1,8 @@
 """Tests for JAX-based discrete event integration."""
 
-import diffrax
 import jax
 import jax.numpy as jnp
 import numpy as np
-import pytest
 
 from pymcsimmod.events import DiscreteEvent
 from pymcsimmod.models.jax_model import JaxModel
@@ -40,7 +38,7 @@ def test_jax_single_event_add():
     # At t=5.0, the state should be updated with the event (+10.0)
     # Solve analytically: A(5-) = 0, A(5+) = 10, A(10) = 10 * exp(-0.1 * 5) = 6.065
     np.testing.assert_allclose(result.states[idx_5, 0], 10.0, rtol=1e-5)
-    
+
     idx_10 = np.where(np.abs(result.times - 10.0) < 1e-12)[0][0]
     expected_10 = 10.0 * np.exp(-0.1 * 5.0)
     np.testing.assert_allclose(result.states[idx_10, 0], expected_10, rtol=1e-3)
@@ -157,13 +155,13 @@ def test_jax_scipy_equivalence():
         model.add_event(time=7.0, state_var="A", value=1.0, method="replace")
 
     times = np.linspace(0, 10, 101)
-    
+
     jax_res = jax_model.run_model(times)
     scipy_res = scipy_model.run_model(times)
 
     np.testing.assert_allclose(jax_res.times, scipy_res.times, rtol=1e-6, atol=1e-6)
-    
-    # Filter out event times from states comparison as JAX reports post-event states 
+
+    # Filter out event times from states comparison as JAX reports post-event states
     # at boundary times whereas SciPy reports pre-event states.
     mask = ~np.isin(jax_res.times, [2.0, 4.0, 7.0])
     np.testing.assert_allclose(jax_res.states[mask], scipy_res.states[mask], rtol=1e-2)
@@ -171,7 +169,6 @@ def test_jax_scipy_equivalence():
 
 def test_jax_events_differentiability():
     """Test that JaxModel is fully differentiable with respect to event values using JAX."""
-    import equinox as eqx
 
     model_str = """
     States = {
@@ -204,7 +201,7 @@ def test_jax_events_differentiability():
     # Assert gradient is not NaN and is non-zero
     assert not jnp.isnan(g)
     assert g != 0.0
-    
+
     # Analytical verification:
     # A(0) = 0
     # A(5-) = 0

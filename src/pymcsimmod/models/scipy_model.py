@@ -166,6 +166,7 @@ class ScipyModel(OdeModel):
 
             # Handle edge case where t_span has identical start and end times
             if t_span[0] == t_span[1] and times[0] == 0.0:
+
                 class MockSolutionMinimal:
                     def __init__(self, t, y_init):
                         self.t = np.array([t])
