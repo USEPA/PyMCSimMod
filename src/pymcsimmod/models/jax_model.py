@@ -200,7 +200,7 @@ class EqxModel(eqx.Module):
 
             ode_term = diffrax.ODETerm(ode_rhs)
             if solver is None:
-                solver = diffrax.Dopri8()
+                solver = diffrax.Tsit5()
 
             stepsize_controller = diffrax.PIDController(rtol=rtol, atol=atol)
 
