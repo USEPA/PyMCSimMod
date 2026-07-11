@@ -22,7 +22,7 @@ class EqxModel(eqx.Module):
     parameters: dict[str, float] = eqx.field()  # Constants
     forcing_functions: dict[str, Callable] = eqx.field()  # Forcing functions for inputs
     Y0: dict[str, float] = eqx.field()  # State variable initial conditions
-    events: list[Any] = eqx.field()  # Discrete events
+    events: tuple[Any, ...] = eqx.field(static=True)  # Discrete events
     model_tree: Any = eqx.field(static=True)
     state_names: tuple[str, ...] = eqx.field()
     output_names: tuple[str, ...] = eqx.field()
@@ -88,6 +88,7 @@ class EqxModel(eqx.Module):
         solver: diffrax.AbstractSolver | None = None,
         rtol: float = 1e-10,
         atol: float = 1e-10,
+        events: Sequence[Any] | None = None,
     ) -> tuple[diffrax.Solution, jnp.ndarray, dict[str, Callable]]:
         """
         Run the JAX model with event handling checks.
@@ -99,48 +100,146 @@ class EqxModel(eqx.Module):
             solver: Diffrax solver to use. If None, uses Dopri8() (default: None).
             rtol: Relative tolerance for adaptive step size control (default: 1e-10).
             atol: Absolute tolerance for adaptive step size control (default: 1e-10).
+            events: Sequence of discrete events to apply.
 
         Returns:
             Tuple of (solution, calculated outputs, input functions dictionary).
         """
-        # Check for events and warn
-        if self.events:
-            raise NotImplementedError(
-                "Discrete events are not yet supported for JAX-based models. "
-                "Please use ScipyModel for models with discrete events, or consider "
-                "implementing events as continuous forcing functions."
-            )
-
         # Compile forcing functions before running ODE solve
         self.compile_forcing_functions()
-        t0 = float(times[0])
-        t_end = float(times[-1])
-        y_init = jnp.asarray([self.Y0[state] for state in self.state_names], dtype=jnp.float32)
 
-        @eqx.filter_jit
-        def ode_rhs(t, y, args):
-            return self.model(t, y)
+        if events is None:
+            events = self.events
 
-        ode_term = diffrax.ODETerm(ode_rhs)
-        # Use provided solver or default to Dopri8
-        if solver is None:
-            solver = diffrax.Kvaerno5()
+        if events:
+            from .event_utils import check_events
 
-        # Use adaptive step size control with specified tolerances for better accuracy
-        stepsize_controller = diffrax.PIDController(rtol=rtol, atol=atol)
-        saveat = diffrax.SaveAt(ts=jnp.array(times))
-        sol = diffrax.diffeqsolve(
-            ode_term,
-            solver,
-            t0=t0,
-            t1=t_end,
-            dt0=dt0,
-            y0=y_init,
-            saveat=saveat,
-            max_steps=max_steps,
-            stepsize_controller=stepsize_controller,
-            args=(),
-        )
+            validated_events, modified_times = check_events(
+                events, np.asarray(times), list(self.state_names)
+            )
+        else:
+            validated_events = []
+            modified_times = np.asarray(times)
+
+        # If no events to apply in this range, run standard single solve
+        if not validated_events:
+            t0 = float(modified_times[0])
+            t_end = float(modified_times[-1])
+            y_init = jnp.asarray([self.Y0[state] for state in self.state_names], dtype=jnp.float32)
+
+            @eqx.filter_jit
+            def ode_rhs(t, y, args):
+                return self.model(t, y)
+
+            ode_term = diffrax.ODETerm(ode_rhs)
+            if solver is None:
+                solver = diffrax.Kvaerno5()
+
+            stepsize_controller = diffrax.PIDController(rtol=rtol, atol=atol)
+            saveat = diffrax.SaveAt(ts=jnp.array(modified_times))
+            sol = diffrax.diffeqsolve(
+                ode_term,
+                solver,
+                t0=t0,
+                t1=t_end,
+                dt0=dt0,
+                y0=y_init,
+                saveat=saveat,
+                max_steps=max_steps,
+                stepsize_controller=stepsize_controller,
+                args=(),
+            )
+        else:
+            # Map event methods to integers for JAX compatibility
+            method_map = {"add": 0, "replace": 1, "multiply": 2}
+
+            event_times = jnp.array([e.time for e in validated_events], dtype=jnp.float32)
+            event_indices = jnp.array(
+                [self.state_names.index(e.state_var) for e in validated_events], dtype=jnp.int32
+            )
+            event_values = jnp.array([e.value for e in validated_events], dtype=jnp.float32)
+            event_methods = jnp.array(
+                [method_map[e.method] for e in validated_events], dtype=jnp.int32
+            )
+
+            t0 = float(modified_times[0])
+            y_init = jnp.asarray([self.Y0[state] for state in self.state_names], dtype=jnp.float32)
+
+            @eqx.filter_jit
+            def apply_events_jax(t, y):
+                num_events = len(validated_events)
+                for i in range(num_events):
+                    idx = event_indices[i]
+                    val = event_values[i]
+                    method = event_methods[i]
+                    ev_t = event_times[i]
+
+                    # Use a small tolerance for floating point comparison
+                    is_event_t = jnp.abs(ev_t - t) < 1e-12
+
+                    val_add = y[idx] + val
+                    val_replace = val
+                    val_multiply = y[idx] * val
+
+                    new_val = jnp.where(
+                        method == 0,
+                        val_add,
+                        jnp.where(method == 1, val_replace, val_multiply),
+                    )
+
+                    target_val = jnp.where(is_event_t, new_val, y[idx])
+                    y = y.at[idx].set(target_val)
+                return y
+
+            # Apply events at the start time t0 if any
+            y_init = apply_events_jax(t0, y_init)
+
+            @eqx.filter_jit
+            def ode_rhs(t, y, args):
+                return self.model(t, y)
+
+            ode_term = diffrax.ODETerm(ode_rhs)
+            if solver is None:
+                solver = diffrax.Dopri8()
+
+            stepsize_controller = diffrax.PIDController(rtol=rtol, atol=atol)
+
+            starts = jnp.array(modified_times[:-1], dtype=jnp.float32)
+            ends = jnp.array(modified_times[1:], dtype=jnp.float32)
+
+            @eqx.filter_jit
+            def solve_segment_and_apply_event(carry_y, x):
+                t_start, t_end = x
+
+                sol_seg = diffrax.diffeqsolve(
+                    ode_term,
+                    solver,
+                    t0=t_start,
+                    t1=t_end,
+                    dt0=dt0,
+                    y0=carry_y,
+                    saveat=diffrax.SaveAt(t1=True),
+                    max_steps=max_steps,
+                    stepsize_controller=stepsize_controller,
+                    args=(),
+                )
+                y_end = sol_seg.ys[0]
+                y_end_post = apply_events_jax(t_end, y_end)
+                return y_end_post, y_end_post
+
+            _, ys_scan = jax.lax.scan(solve_segment_and_apply_event, y_init, (starts, ends))
+
+            # Combine y_init and ys_scan
+            all_ys = jnp.concatenate([y_init[None, :], ys_scan], axis=0)
+            all_ts = jnp.array(modified_times, dtype=jnp.float32)
+
+            # Create a mock solution object to match diffrax.Solution structure
+            class MockSolution:
+                def __init__(self, ts, ys):
+                    self.ts = ts
+                    self.ys = ys
+
+            sol = MockSolution(all_ts, all_ys)
 
         # Check for NaN values in the solution and provide helpful guidance
         if jnp.any(jnp.isnan(sol.ys)):
@@ -234,9 +333,16 @@ class JaxModel(OdeModel):
             - For high doses or long simulations, try tighter tolerances (rtol=1e-10, atol=1e-12)
             - If mass balance is critical, compare with ScipyModel results
         """
+        self._evaluate_event_schedulers(times[0], times[-1])
         eqx_model = self._to_eqx()
         sol, calc_outputs, input_functions = eqx_model.run_model(
-            times, max_steps=max_steps, dt0=dt0, solver=solver, rtol=rtol, atol=atol
+            times,
+            max_steps=max_steps,
+            dt0=dt0,
+            solver=solver,
+            rtol=rtol,
+            atol=atol,
+            events=self.events,
         )
         return ComputedModel(
             times=np.asarray(sol.ts),
@@ -254,7 +360,7 @@ class JaxModel(OdeModel):
             parameters=self.parameters.copy(),
             forcing_functions=self.forcing_functions.copy(),
             Y0=self.Y0.copy(),
-            events=self.events.copy(),
+            events=tuple(self.events),
             model_tree=self.model_tree,
             state_names=tuple(self.state_names),
             output_names=tuple(self.outputs),

@@ -55,6 +55,8 @@ class OdeModel(ABC):
         }
         # Initialize events list
         self.events = []
+        self._manual_events = []
+        self._event_schedulers = {}
 
     def _resolve_model_input(self, model: str | Path) -> str:
         """
@@ -258,14 +260,79 @@ class OdeModel(ABC):
                 f"State variable '{state_var}' not found. Valid state variables: {self.state_names}"
             )
 
+        if not hasattr(self, "_manual_events"):
+            self._manual_events = []
+
         event = DiscreteEvent(time=time, state_var=state_var, value=value, method=method)
-        self.events.append(event)
-        # Keep events sorted by time for efficient processing
+        self._manual_events.append(event)
+        self.events = list(self._manual_events)
         self.events.sort(key=lambda e: e.time)
 
     def clear_events(self) -> None:
-        """Clear all discrete events."""
+        """Clear all discrete events and event schedulers."""
         self.events = []
+        self._manual_events = []
+        if hasattr(self, "_event_schedulers"):
+            self._event_schedulers.clear()
+
+    def assign_event(self, state_var: str, event_type=None, *args, **kwargs) -> None:
+        """
+        Assign an event scheduler to a state variable.
+
+        Args:
+            state_var: Name of the state variable to modify.
+            event_type: Type of event scheduler ('OnOff', 'PerDoses', 'NDoses', 'DataFrame', etc.) or an instance of BaseEventScheduler.
+            *args: Positional arguments for the event scheduler.
+            **kwargs: Keyword arguments for the event scheduler.
+        """
+        if state_var not in self.state_names:
+            raise KeyError(
+                f"State variable '{state_var}' not found. Valid state variables: {self.state_names}"
+            )
+
+        if not hasattr(self, "_event_schedulers"):
+            self._event_schedulers = {}
+
+        from ..events.base import BaseEventScheduler
+        if isinstance(event_type, BaseEventScheduler):
+            scheduler = event_type
+        else:
+            from ..events.base import create_event_scheduler
+            scheduler = create_event_scheduler(event_type, *args, **kwargs)
+
+        self._event_schedulers[state_var] = [scheduler]
+
+    def add_event_scheduler(self, state_var: str, scheduler) -> None:
+        """
+        Add an event scheduler to a state variable without removing existing ones.
+
+        Args:
+            state_var: Name of the state variable to modify.
+            scheduler: An instance of BaseEventScheduler.
+        """
+        if state_var not in self.state_names:
+            raise KeyError(
+                f"State variable '{state_var}' not found. Valid state variables: {self.state_names}"
+            )
+
+        if not hasattr(self, "_event_schedulers"):
+            self._event_schedulers = {}
+
+        self._event_schedulers.setdefault(state_var, []).append(scheduler)
+
+    def _evaluate_event_schedulers(self, t_start: float, t_end: float) -> None:
+        """Evaluate all event schedulers and populate self.events."""
+        if not hasattr(self, "_manual_events"):
+            self._manual_events = []
+
+        sched_events = []
+        if hasattr(self, "_event_schedulers"):
+            for state_var, schedulers in self._event_schedulers.items():
+                for scheduler in schedulers:
+                    sched_events.extend(scheduler.get_events(state_var, t_start, t_end))
+
+        self.events = list(self._manual_events) + sched_events
+        self.events.sort(key=lambda e: e.time)
 
     def get_event_times(self, t_start: float, t_end: float) -> list[float]:
         """

@@ -1,8 +1,8 @@
 """Discrete event handling for ODE models."""
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class DiscreteEvent(BaseModel):
@@ -16,10 +16,34 @@ class DiscreteEvent(BaseModel):
         method: Type of operation ('replace', 'add', 'multiply').
     """
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     time: float
     state_var: str
-    value: float
+    value: Any
     method: Literal["replace", "add", "multiply"] = "add"
+
+    def __hash__(self):
+        try:
+            return hash((self.time, self.state_var, self.value, self.method))
+        except TypeError:
+            return id(self)
+
+    def __eq__(self, other):
+        if not isinstance(other, DiscreteEvent):
+            return False
+        # If value is a tracer, comparison with == might return a tracer, so check identity or array equality safely
+        # Standard fallback:
+        try:
+            val_eq = bool(self.value == other.value)
+        except Exception:
+            val_eq = self.value is other.value
+        return (
+            self.time == other.time
+            and self.state_var == other.state_var
+            and val_eq
+            and self.method == other.method
+        )
 
     def apply(self, state_dict: dict[str, float], state_names: list[str]) -> dict[str, float]:
         """

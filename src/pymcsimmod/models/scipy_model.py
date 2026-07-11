@@ -135,6 +135,7 @@ class ScipyModel(OdeModel):
             ComputedModel containing the solution.
         """
         times = np.array(times)
+        self._evaluate_event_schedulers(times[0], times[-1])
         y_init = np.array([self.Y0[state] for state in self.state_names])
 
         # Disable vectorized mode completely to avoid scipy numerical issues
