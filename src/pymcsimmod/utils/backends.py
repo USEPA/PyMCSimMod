@@ -1,30 +1,9 @@
 """Backend detection and validation utilities."""
 
-from enum import Enum
+import importlib.util
 from typing import Protocol, runtime_checkable
 
-from pydantic import BaseModel, field_validator
-
-
-class SupportedBackend(str, Enum):
-    """Enumeration of supported backends."""
-
-    SCIPY = "scipy"
-    JAX = "jax"
-
-
-class BackendRequest(BaseModel):
-    """Pydantic model for backend validation."""
-
-    backend: SupportedBackend
-
-    @field_validator("backend", mode="before")
-    @classmethod
-    def validate_backend_not_none(cls, v):
-        """Ensure backend is not None."""
-        if v is None:
-            raise TypeError("Backend cannot be None")
-        return v
+from ..config import BackendType
 
 
 @runtime_checkable
@@ -45,58 +24,67 @@ def detect_available_backends() -> dict[str, bool]:
     Detect which backends are available on the system.
 
     Returns:
-        Dictionary mapping backend names to availability
+        Dictionary mapping backend names to availability.
     """
-    import importlib.util
-
-    backends = {"scipy": False, "jax": False}
+    backends = {
+        "scipy": False,
+        "jax": False,
+        "tensorflow": False,
+        "pytorch": False,
+    }
 
     # Check scipy availability
     if importlib.util.find_spec("scipy.integrate") is not None:
         backends["scipy"] = True
 
-    # Check JAX availability
+    # Check JAX availability (requires jax, equinox, diffrax)
     jax_modules = ["jax", "equinox", "diffrax"]
     if all(importlib.util.find_spec(module) is not None for module in jax_modules):
         backends["jax"] = True
+
+    # Check TensorFlow availability
+    if importlib.util.find_spec("tensorflow") is not None:
+        backends["tensorflow"] = True
+
+    # Check PyTorch availability
+    if importlib.util.find_spec("torch") is not None:
+        backends["pytorch"] = True
 
     return backends
 
 
 def validate_backend(backend: str) -> None:
     """
-    Validate that a backend is available and supported.
+    Validate that a backend is supported and its dependencies are available.
 
     Args:
-        backend: Backend name to validate
+        backend: Backend name to validate.
 
     Raises:
-        ValueError: If backend is not supported
-        ImportError: If backend dependencies are not available
-        TypeError: If backend is None
+        ValueError: If backend name is not recognised.
+        ImportError: If backend dependencies are not installed.
+        TypeError: If backend is None.
     """
-    # Use Pydantic validation for type checking and enum validation
-    try:
-        request = BackendRequest(backend=backend)
-        backend_enum = request.backend
-    except ValueError as e:
-        # Convert Pydantic ValueError to our expected ValueError
-        if "Input should be 'scipy' or 'jax'" in str(e):
-            raise ValueError(
-                f"Unsupported backend '{backend}'. Supported backends: {{'scipy', 'jax'}}"
-            )
-        raise
-    except TypeError:
-        # Re-raise TypeError for None values
-        raise
+    if backend is None:
+        raise TypeError("Backend cannot be None")
 
-    # Check if dependencies are available
+    valid = {bt.value for bt in BackendType}
+    if backend not in valid:
+        raise ValueError(f"Unsupported backend '{backend}'. Supported backends: {valid}")
+
     available = detect_available_backends()
-    if not available[backend_enum.value]:
-        if backend_enum == SupportedBackend.SCIPY:
-            raise ImportError("Scipy backend requires: scipy")
-        elif backend_enum == SupportedBackend.JAX:
-            raise ImportError("JAX backend requires: jax, equinox, diffrax")
+    backend_key = backend.lower()
+    if backend_key in available and not available[backend_key]:
+        install_hints = {
+            "scipy": "pip install scipy",
+            "jax": "pip install jax equinox diffrax",
+            "tensorflow": "pip install tensorflow",
+            "pytorch": "pip install torch",
+        }
+        hint = install_hints.get(backend_key, f"pip install {backend_key}")
+        raise ImportError(
+            f"{backend} backend requires additional dependencies. Install with: {hint}"
+        )
 
 
 def get_backend_capabilities(backend: str) -> dict[str, bool]:
@@ -104,23 +92,16 @@ def get_backend_capabilities(backend: str) -> dict[str, bool]:
     Get the capabilities of a specific backend.
 
     Args:
-        backend: Backend name
+        backend: Backend name (e.g., 'scipy', 'jax').
 
     Returns:
-        Dictionary of backend capabilities
+        Dictionary of backend capabilities.
 
     Raises:
-        ValueError: If backend is unknown
+        ValueError: If backend is unknown.
     """
-    # Validate backend using Pydantic
-    try:
-        request = BackendRequest(backend=backend)
-        backend_enum = request.backend
-    except (ValueError, TypeError):
-        raise ValueError(f"Unknown backend '{backend}'. Supported: {list(SupportedBackend)}")
-
-    capabilities = {
-        SupportedBackend.SCIPY: {
+    capabilities: dict[BackendType, dict[str, bool]] = {
+        BackendType.SCIPY: {
             "discrete_events": True,
             "forcing_functions": True,
             "adaptive_stepping": True,
@@ -128,17 +109,41 @@ def get_backend_capabilities(backend: str) -> dict[str, bool]:
             "jit_compilation": False,
             "automatic_differentiation": False,
         },
-        SupportedBackend.JAX: {
-            "discrete_events": False,  # Currently unsupported
+        BackendType.JAX: {
+            # JAX now supports discrete events via jax.lax.scan piece-wise integration
+            "discrete_events": True,
             "forcing_functions": True,
             "adaptive_stepping": True,
-            "event_detection": False,
+            "event_detection": True,
             "jit_compilation": True,
             "automatic_differentiation": True,
         },
+        # --- Future backend templates (not yet implemented) ---
+        BackendType.TENSORFLOW: {
+            "discrete_events": False,   # Not yet implemented
+            "forcing_functions": False,  # Not yet implemented
+            "adaptive_stepping": False,
+            "event_detection": False,
+            "jit_compilation": True,    # tf.function
+            "automatic_differentiation": True,  # tf.GradientTape
+        },
+        BackendType.PYTORCH: {
+            "discrete_events": False,
+            "forcing_functions": False,
+            "adaptive_stepping": False,
+            "event_detection": False,
+            "jit_compilation": False,   # torch.jit.script (limited)
+            "automatic_differentiation": True,  # autograd
+        },
     }
 
-    return capabilities[backend_enum]
+    try:
+        bt = BackendType(backend)
+    except ValueError:
+        valid = [bt.value for bt in BackendType]
+        raise ValueError(f"Unknown backend '{backend}'. Supported: {valid}")
+
+    return capabilities[bt]
 
 
 def recommend_backend(
@@ -150,31 +155,28 @@ def recommend_backend(
     Recommend a backend based on requirements.
 
     Args:
-        needs_events: Whether discrete events are required
-        needs_jit: Whether JIT compilation is preferred
-        needs_autodiff: Whether automatic differentiation is needed
+        needs_events: Whether discrete events are required.
+        needs_jit: Whether JIT compilation is preferred.
+        needs_autodiff: Whether automatic differentiation is needed.
 
     Returns:
-        Recommended backend name
+        Recommended backend name.
     """
     available = detect_available_backends()
 
-    # If events are required, only scipy supports them currently
-    if needs_events:
-        if available["scipy"]:
-            return "scipy"
-        else:
-            raise RuntimeError("Discrete events require scipy backend, but scipy is not available")
-
-    # If JAX features are needed and available, recommend JAX
-    if (needs_jit or needs_autodiff) and available["jax"]:
+    # If autodiff or JIT is needed, prefer JAX (it supports everything including events now)
+    if (needs_autodiff or needs_jit) and available["jax"]:
         return "jax"
+
+    # For events without autodiff/jit, scipy is a solid choice
+    if needs_events and available["scipy"]:
+        return "scipy"
 
     # Default to scipy if available
     if available["scipy"]:
         return "scipy"
 
-    # If only JAX is available
+    # Fall back to JAX
     if available["jax"]:
         return "jax"
 
