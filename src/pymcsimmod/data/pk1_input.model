@@ -42,7 +42,7 @@ Outputs = {
 # INPUT VARIABLES for the model (which are independent of other variables, and
 # which may vary in time).
 
-Inputs = {OralExp, IVExp, M_in};
+Inputs = {M_in};
 
 # End of INPUT VARIABLES.
 #-------------------------------------------------------------------------------
@@ -63,11 +63,9 @@ A1_init = 0;        # Initial amount in central compartment (mg).
 A2_init = 0;        # Initial amount cleared (mg).
 AUC_init = 0;       # Initial area under the concentration curve (mg*h/L).
 
-# Dosing parameters for repeat dose
-OralDose = 0;       # mg dose to expsoure compartment
-OralDur = 0.01;     # Duration of oral dosing (h)
-IVDose = 0;         # mg dose to central compartment
-IVDur = 0.01;       # Duration of IV dosing (h)
+# User-defined doses for events
+OralDose = 0;       # User-defined oral dose (mg)
+IVDose = 0;         # User-defined IV dose (mg)
 
 # End of PARAMETERS.
 #-------------------------------------------------------------------------------
@@ -97,14 +95,11 @@ Dynamics {
     M = M_in;  # Body mass (kg).
     Vd = Vdc * M;  # Volume of distribution (L).
     C = A1 / Vd;          # Concentration in central compartment (mg/L).
-    ODose = OralDose / OralDur; # Rate of dosing
-    oral_rate = OralExp*ODose;
-    
 
     # Time rate of change (ODE) for each state variable.
-    dt(A_in) = oral_rate;
-    dt(A0) = oral_rate - k01 * A0;
-    dt(A1) = IVExp*ODose + k01 * A0 - k12 * A1;
+    dt(A_in) = 0.0;
+    dt(A0) = - k01 * A0;
+    dt(A1) = k01 * A0 - k12 * A1;
     dt(A2) = k12 * A1;
     dt(AUC) = C;
 }
