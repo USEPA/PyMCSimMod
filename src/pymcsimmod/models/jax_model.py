@@ -184,8 +184,8 @@ class EqxModel(eqx.Module):
                     method = event_methods[i]
                     ev_t = event_times[i]
 
-                    # Use a small tolerance for floating point comparison
-                    is_event_t = jnp.abs(ev_t - t) < 1e-12
+                    # Use a tolerance appropriate for float32 time grids
+                    is_event_t = jnp.isclose(ev_t, t, rtol=0.0, atol=1e-6)
 
                     val_add = y[idx] + val
                     val_replace = val
