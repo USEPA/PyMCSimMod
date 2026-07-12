@@ -12,6 +12,7 @@ import jax
 import jax.numpy as jnp
 
 from pymcsimmod.config import BackendType
+from pymcsimmod.events import DiscreteEvent
 from pymcsimmod.forcing.unified import UnifiedForcingFactory
 from pymcsimmod.models.computed import ComputedModel
 from pymcsimmod.models.jax_model import EqxModel, JaxModel
@@ -225,28 +226,33 @@ class TestEqxModel:
         # Test that it can be JIT compiled (this is implicit in the @eqx.filter_jit decorator)
         # If JIT compilation fails, the test will fail
 
-    def test_run_model_with_events_raises_error(self, eqx_model_components):
-        """Test that having events raises NotImplementedError."""
+    def test_run_model_with_events_success(self, eqx_model_components):
+        """Test that running with events succeeds on EqxModel."""
         model_tree = eqx_model_components
 
         zero_func = UnifiedForcingFactory.create_forcing_function(
             "ZeroFunc", backend=BackendType.JAX
         )
 
+        event = DiscreteEvent(time=5.0, state_var="A", value=10.0, method="add")
+
         model = EqxModel(
             parameters={"ka": 1.0, "ke": 0.1},
             forcing_functions={"dose": zero_func},
             Y0={"A": 0.0},
-            events=[{"type": "test"}],  # Add a dummy event
+            events=(event,),
             model_tree=model_tree,
             state_names=("A",),
             output_names=("A_out",),
         )
 
-        times = np.linspace(0, 10, 101)
+        times = np.linspace(0, 10, 11)
+        sol, calc_outputs, input_functions = model.run_model(times)
 
-        with pytest.raises(NotImplementedError, match="Discrete events are not yet supported"):
-            model.run_model(times)
+        assert len(sol.ts) == 11
+        # Find index of t=5
+        idx = np.where(np.abs(sol.ts - 5.0) < 1e-12)[0][0]
+        np.testing.assert_allclose(sol.ys[idx, 0], 10.0, rtol=1e-6, atol=1e-6)
 
     def test_run_model_success(self, eqx_model_components):
         """Test successful model run without events."""
@@ -1076,8 +1082,8 @@ class TestJaxCompatibility:
             ff_result = result.input_functions["dose_input"](test_time)
             assert isinstance(ff_result, jnp.ndarray)
 
-    def test_events_raise_error_for_jax_models(self):
-        """Test that discrete events properly raise NotImplementedError for JAX models."""
+    def test_events_run_successfully_for_jax_models(self):
+        """Test that discrete events run successfully for JAX models."""
         model_str = """
         States = { A };
         ka = 1.0; ke = 0.1;
@@ -1088,13 +1094,18 @@ class TestJaxCompatibility:
 
         model = JaxModel(model_str)
 
-        # Manually add an event to test error handling
-        model.events.append({"type": "test_event"})
+        # Add an event
+        model.add_event(time=2.0, state_var="A", value=5.0, method="add")
 
-        times = np.linspace(0, 5, 10)
+        times = np.linspace(0, 5, 11)
 
-        with pytest.raises(NotImplementedError, match="Discrete events are not yet supported"):
-            model.run_model(times)
+        result = model.run_model(times)
+
+        assert not np.any(np.isnan(result.states))
+        idx = np.where(np.abs(result.times - 5.0) < 1e-12)[0][0]
+        # Without event: 10 * exp(-0.1 * 5) = 6.0653
+        # With event: at t=2: 10 * exp(-0.2) = 8.1873 -> +5 = 13.1873 -> at t=5: 13.1873 * exp(-0.3) = 9.7692
+        np.testing.assert_allclose(result.states[idx, 0], 9.76918, rtol=1e-4)
 
 
 def test_reset_to_defaults_jax():

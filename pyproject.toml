@@ -3,7 +3,7 @@ name = "pymcsimmod"
 authors = [{name = "Andy Shapiro", email = "shapiro.andy@epa.gov"}]
 dynamic = ["version", "description"]
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.13, <3.14"
 license = { file="LICENSE" }
 classifiers = [
   "Development Status :: 3 - Alpha",

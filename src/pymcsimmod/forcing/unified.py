@@ -440,6 +440,86 @@ def create_constantfunc(val: float, backend: BackendType = BackendType.SCIPY):
     return UnifiedForcingFactory.create_constantfunc(val, backend)
 
 
+def extract_forcing_switch_times(
+    forcing_functions: dict, t_start: float, t_end: float
+) -> set[float]:
+    """
+    Extract switch times from forcing function specifications.
+
+    These are the discontinuity times (on/off transitions, knot points) that
+    the ODE solver needs to be aware of for accurate integration.
+
+    Args:
+        forcing_functions: Dictionary of forcing function specifications
+            (each value may be a dict with 'function' and 'kwargs' keys)
+        t_start: Start time of the simulation window
+        t_end: End time of the simulation window
+
+    Returns:
+        Set of switch times within [t_start, t_end]
+    """
+    switch_times = set()
+
+    for ff in forcing_functions.values():
+        if not (isinstance(ff, dict) and "function" in ff):
+            continue
+        func = ff["function"]
+        kwargs = ff.get("kwargs", {})
+
+        if func == "PerDose":
+            t0 = kwargs["t0"]
+            duration = kwargs["duration"]
+            period = kwargs["period"]
+            n = 0
+            while True:
+                on = t0 + n * period
+                off = on + duration
+                if on > t_end:
+                    break
+                if on >= t_start:
+                    switch_times.add(on)
+                if t_start <= off <= t_end:
+                    switch_times.add(off)
+                n += 1
+
+        elif func == "NDoses":
+            t0_list = kwargs["t0_list"]
+            duration = kwargs["duration"]
+            for t0 in t0_list:
+                off = t0 + duration
+                if t_start <= t0 <= t_end:
+                    switch_times.add(t0)
+                if t_start <= off <= t_end:
+                    switch_times.add(off)
+
+        elif func == "OnOff":
+            t0 = kwargs["t0"]
+            t1 = kwargs["t1"]
+            if t_start <= t0 <= t_end:
+                switch_times.add(t0)
+            if t_start <= t1 <= t_end:
+                switch_times.add(t1)
+
+        elif func in ("InterpolatedForcing", "Interpolate"):
+            times_data = []
+            if len(ff.get("args", [])) > 0:
+                times_data = ff["args"][0]
+            elif "data_dict" in kwargs and "time" in kwargs["data_dict"]:
+                times_data = kwargs["data_dict"]["time"]
+            elif "times" in kwargs:
+                times_data = kwargs["times"]
+            elif "dataframe" in kwargs:
+                df = kwargs["dataframe"]
+                time_col = kwargs.get("time_col", "time")
+                if hasattr(df, "columns") and time_col in df.columns:
+                    times_data = df[time_col].tolist()
+            for t in times_data:
+                if t_start <= t <= t_end:
+                    switch_times.add(t)
+
+    return switch_times
+
+
 __all__ = [
     "ForcingBackend",
     "JAXBackend",
@@ -452,4 +532,5 @@ __all__ = [
     "create_onoff",
     "create_perdose",
     "create_zerofunc",
+    "extract_forcing_switch_times",
 ]

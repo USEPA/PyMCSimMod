@@ -168,3 +168,27 @@ def apply_events_at_time(
             state_dict = event.apply(state_dict, list(state_dict.keys()))
 
     return state_dict
+
+
+def extract_event_times(events: list, t_start: float, t_end: float) -> list[float]:
+    """
+    Extract event times within the specified time range.
+
+    Args:
+        events: List of DiscreteEvent objects
+        t_start: Start time
+        t_end: End time
+
+    Returns:
+        List of event times within [t_start, t_end]
+    """
+    return [event.time for event in events if t_start <= event.time <= t_end]
+
+
+__all__ = [
+    "apply_events_at_time",
+    "check_events",
+    "clean_event_times",
+    "extract_event_times",
+    "nearest_event_time",
+]

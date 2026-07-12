@@ -5,11 +5,17 @@ from pathlib import Path
 from pydantic import validate_call
 
 from .config import BackendType
-
-# Maintain backward compatibility - import from old locations
+from .events import (
+    DataFrameEventScheduler,
+    DiscreteEvent,
+    NDoses,
+    OnOff,
+    PerDose,
+    PerDoses,
+    create_event_scheduler,
+)
 from .models import (
     ComputedModel,
-    DiscreteEvent,
     EqxModel,
     JaxModel,
     OdeModel,
@@ -45,11 +51,18 @@ def create_model(model_source: str | Path, backend: BackendType = BackendType.SC
 
 
 __all__ = [
+    "BackendType",
     "ComputedModel",
+    "DataFrameEventScheduler",
     "DiscreteEvent",
     "EqxModel",
     "JaxModel",
+    "NDoses",
     "OdeModel",
+    "OnOff",
+    "PerDose",
+    "PerDoses",
     "ScipyModel",
+    "create_event_scheduler",
     "create_model",
 ]

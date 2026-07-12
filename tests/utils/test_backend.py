@@ -98,10 +98,11 @@ class TestGetBackendCapabilities:
         capabilities = get_backend_capabilities("jax")
 
         assert isinstance(capabilities, dict)
-        assert capabilities["discrete_events"] is False
+        # JAX now supports discrete events via jax.lax.scan piece-wise integration
+        assert capabilities["discrete_events"] is True
         assert capabilities["forcing_functions"] is True
         assert capabilities["adaptive_stepping"] is True
-        assert capabilities["event_detection"] is False
+        assert capabilities["event_detection"] is True
         assert capabilities["jit_compilation"] is True
         assert capabilities["automatic_differentiation"] is True
 
@@ -135,9 +136,9 @@ class TestGetBackendCapabilities:
         scipy_caps = get_backend_capabilities("scipy")
         jax_caps = get_backend_capabilities("jax")
 
-        # Scipy should have events, JAX should not
+        # Both scipy and JAX support discrete events (JAX via jax.lax.scan)
         assert scipy_caps["discrete_events"] is True
-        assert jax_caps["discrete_events"] is False
+        assert jax_caps["discrete_events"] is True
 
         # JAX should have JIT and autodiff, scipy should not
         assert jax_caps["jit_compilation"] is True
@@ -163,13 +164,18 @@ class TestRecommendBackend:
         assert recommended in ["scipy", "jax"]
         assert available_backends[recommended] is True
 
-    def test_recommend_backend_needs_events(self, has_scipy):
+    def test_recommend_backend_needs_events(self, available_backends):
         """Test backend recommendation when events are required."""
-        if has_scipy:
+        # Both JAX and scipy now support discrete events.
+        # recommend_backend prefers scipy for events-only requests.
+        if available_backends["scipy"]:
             recommended = recommend_backend(needs_events=True)
-            assert recommended == "scipy"
+            assert recommended in ("scipy", "jax")
+        elif available_backends["jax"]:
+            recommended = recommend_backend(needs_events=True)
+            assert recommended == "jax"
         else:
-            with pytest.raises(RuntimeError, match="Discrete events require scipy"):
+            with pytest.raises(RuntimeError, match="No supported backends"):
                 recommend_backend(needs_events=True)
 
     def test_recommend_backend_needs_jit(self, available_backends):
@@ -196,25 +202,30 @@ class TestRecommendBackend:
             with pytest.raises(RuntimeError, match="No supported backends"):
                 recommend_backend(needs_autodiff=True)
 
-    def test_recommend_backend_conflicting_requirements(self, has_scipy):
-        """Test backend recommendation with conflicting requirements."""
-        if has_scipy:
-            # Events are only supported by scipy, so should recommend scipy
-            # even if JIT is requested
-            recommended = recommend_backend(needs_events=True, needs_jit=True)
-            assert recommended == "scipy"
-        else:
-            with pytest.raises(RuntimeError, match="Discrete events require scipy"):
-                recommend_backend(needs_events=True, needs_jit=True)
-
-    def test_recommend_backend_all_requirements(self, has_scipy):
-        """Test backend recommendation with all requirements."""
-        if has_scipy:
-            # Events requirement should force scipy selection
+    def test_recommend_backend_conflicting_requirements(self, available_backends):
+        """Test backend recommendation with conflicting requirements (events + autodiff)."""
+        # JAX supports both events and autodiff, so it is now the preferred choice.
+        if available_backends["jax"]:
             recommended = recommend_backend(needs_events=True, needs_jit=True, needs_autodiff=True)
+            assert recommended == "jax"
+        elif available_backends["scipy"]:
+            recommended = recommend_backend(needs_events=True)
             assert recommended == "scipy"
         else:
-            with pytest.raises(RuntimeError, match="Discrete events require scipy"):
+            with pytest.raises(RuntimeError, match="No supported backends"):
+                recommend_backend(needs_events=True)
+
+    def test_recommend_backend_all_requirements(self, available_backends):
+        """Test backend recommendation with all requirements."""
+        # JAX supports events + autodiff + JIT, so it is now the preferred choice.
+        if available_backends["jax"]:
+            recommended = recommend_backend(needs_events=True, needs_jit=True, needs_autodiff=True)
+            assert recommended == "jax"
+        elif available_backends["scipy"]:
+            recommended = recommend_backend(needs_events=True)
+            assert recommended == "scipy"
+        else:
+            with pytest.raises(RuntimeError, match="No supported backends"):
                 recommend_backend(needs_events=True, needs_jit=True, needs_autodiff=True)
 
     def test_recommend_backend_no_backends_available(self, monkeypatch):

@@ -4,7 +4,6 @@ import math
 from enum import Enum
 from typing import Annotated, Literal
 
-import jax
 from pydantic import BaseModel, Field
 from scipy import stats
 
@@ -98,6 +97,8 @@ class SpecialFunction(BaseModel):
         if self.func == "BetaRandom":
             alpha, beta, a, b = args
             if approach == Approach.JAX:
+                import jax  # lazy import — only when JAX approach is used
+
                 key = jax.random.PRNGKey(0)
                 return jax.random.beta(key, a, b, shape=(alpha, beta))
             if approach == Approach.SCIPY:

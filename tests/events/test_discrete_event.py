@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from pymcsimmod.models.events import DiscreteEvent
+from pymcsimmod.events import DiscreteEvent
 
 
 class TestDiscreteEvent:
@@ -308,9 +308,7 @@ class TestDiscreteEventIntegration:
         assert len(result.times) >= len(times)
 
     def test_jax_model_event_error(self):
-        """Test that JAX models properly reject events."""
-        pytest.importorskip("jax")
-
+        """Test that JAX model discrete events run successfully now."""
         from pymcsimmod.models.jax_model import JaxModel
 
         model_str = """
@@ -331,14 +329,15 @@ class TestDiscreteEventIntegration:
 
         model = JaxModel(model_str)
 
-        # Add an event using add_event API (even though it will fail)
+        # Add an event using add_event API
         model.add_event(time=5.0, state_var="A", value=10.0)
 
-        times = np.linspace(0, 10, 101)
+        times = np.linspace(0, 10, 11)
 
-        # Should raise NotImplementedError
-        with pytest.raises(NotImplementedError, match="Discrete events are not yet supported"):
-            model.run_model(times)
+        # Should run successfully
+        result = model.run_model(times)
+        idx = np.where(np.abs(result.times - 5.0) < 1e-12)[0][0]
+        np.testing.assert_allclose(result.states[idx, 0], 10.0)
 
 
 class TestDiscreteEventEdgeCases:
