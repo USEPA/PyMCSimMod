@@ -6,7 +6,6 @@ import pytest
 
 from pymcsimmod.events import NDoses, OnOff, PerDoses, create_event_scheduler
 from pymcsimmod.events.base import DataFrameEventScheduler
-from pymcsimmod.models.jax_model import JaxModel
 from pymcsimmod.models.scipy_model import ScipyModel
 
 
@@ -141,8 +140,8 @@ def test_create_event_scheduler():
         create_event_scheduler("InvalidType")
 
 
-def test_model_scheduler_integration():
-    """Test integrating event schedulers with ScipyModel and JaxModel."""
+def test_model_scheduler_integration_scipy():
+    """Test integrating event schedulers with ScipyModel."""
     model_str = """
     States = {
         A
@@ -155,42 +154,96 @@ def test_model_scheduler_integration():
     }
     End.
     """
-    scipy_model = ScipyModel(model_str)
-    jax_model = JaxModel(model_str)
+    model = ScipyModel(model_str)
 
-    for model in [scipy_model, jax_model]:
-        # Assign an NDoses event scheduler using string name
-        model.assign_event("A", "NDoses", t0_list=[2.0, 7.0], value=10.0, method="add")
+    # Assign an NDoses event scheduler using string name
+    model.assign_event("A", "NDoses", t0_list=[2.0, 7.0], value=10.0, method="add")
 
-        # Add another scheduler using add_event_scheduler method
-        sec_sched = PerDoses(t0=4.0, period=2.0, value=5.0, method="add", n=2)
-        model.add_event_scheduler("A", sec_sched)
+    # Add another scheduler using add_event_scheduler method
+    sec_sched = PerDoses(t0=4.0, period=2.0, value=5.0, method="add", n=2)
+    model.add_event_scheduler("A", sec_sched)
 
-        times = np.linspace(0, 10, 11)
-        result = model.run_model(times)
+    times = np.linspace(0, 10, 11)
+    result = model.run_model(times)
 
-        # Expected times:
-        # t=2.0: +10 (from NDoses) -> A = 10.0
-        # t=4.0: +5 (from PerDoses) -> A = 15.0
-        # t=6.0: +5 (from PerDoses) -> A = 20.0
-        # t=7.0: +10 (from NDoses) -> A = 30.0
+    # Expected times:
+    # t=2.0: +10 (from NDoses) -> A = 10.0
+    # t=4.0: +5 (from PerDoses) -> A = 15.0
+    # t=6.0: +5 (from PerDoses) -> A = 20.0
+    # t=7.0: +10 (from NDoses) -> A = 30.0
 
-        # Find values at exact non-boundary times to be robust to pre/post event reporting
-        # of different backends at boundary times
-        a_vals = result.dataframe["A"].values
-        idx_3 = np.where(np.abs(result.times - 3.0) < 1e-12)[0][0]
-        idx_5 = np.where(np.abs(result.times - 5.0) < 1e-12)[0][0]
-        idx_8 = np.where(np.abs(result.times - 8.0) < 1e-12)[0][0]
+    # Find values at exact non-boundary times to be robust to pre/post event reporting
+    # of different backends at boundary times
+    a_vals = result.dataframe["A"].values
+    idx_3 = np.where(np.abs(result.times - 3.0) < 1e-12)[0][0]
+    idx_5 = np.where(np.abs(result.times - 5.0) < 1e-12)[0][0]
+    idx_8 = np.where(np.abs(result.times - 8.0) < 1e-12)[0][0]
 
-        np.testing.assert_allclose(a_vals[idx_3], 10.0)
-        np.testing.assert_allclose(a_vals[idx_5], 15.0)
-        np.testing.assert_allclose(a_vals[idx_8], 30.0)
+    np.testing.assert_allclose(a_vals[idx_3], 10.0)
+    np.testing.assert_allclose(a_vals[idx_5], 15.0)
+    np.testing.assert_allclose(a_vals[idx_8], 30.0)
 
-        # Test clear_events removes schedulers
-        model.clear_events()
-        assert len(model.events) == 0
-        assert len(model._event_schedulers) == 0
+    # Test clear_events removes schedulers
+    model.clear_events()
+    assert len(model.events) == 0
+    assert len(model._event_schedulers) == 0
 
-        # Run again and ensure state remains at 0.0
-        result_clear = model.run_model(times)
-        np.testing.assert_allclose(result_clear.dataframe["A"].values, 0.0)
+    # Run again and ensure state remains at 0.0
+    result_clear = model.run_model(times)
+    np.testing.assert_allclose(result_clear.dataframe["A"].values, 0.0)
+
+
+def test_model_scheduler_integration_jax():
+    """Test integrating event schedulers with JaxModel."""
+    pytest.importorskip("jax")
+    from pymcsimmod.models.jax_model import JaxModel
+
+    model_str = """
+    States = {
+        A
+    };
+    Initialize {
+        A = 0.0;
+    }
+    Dynamics {
+        dt(A) = 0.0;
+    }
+    End.
+    """
+    model = JaxModel(model_str)
+
+    # Assign an NDoses event scheduler using string name
+    model.assign_event("A", "NDoses", t0_list=[2.0, 7.0], value=10.0, method="add")
+
+    # Add another scheduler using add_event_scheduler method
+    sec_sched = PerDoses(t0=4.0, period=2.0, value=5.0, method="add", n=2)
+    model.add_event_scheduler("A", sec_sched)
+
+    times = np.linspace(0, 10, 11)
+    result = model.run_model(times)
+
+    # Expected times:
+    # t=2.0: +10 (from NDoses) -> A = 10.0
+    # t=4.0: +5 (from PerDoses) -> A = 15.0
+    # t=6.0: +5 (from PerDoses) -> A = 20.0
+    # t=7.0: +10 (from NDoses) -> A = 30.0
+
+    # Find values at exact non-boundary times to be robust to pre/post event reporting
+    # of different backends at boundary times
+    a_vals = result.dataframe["A"].values
+    idx_3 = np.where(np.abs(result.times - 3.0) < 1e-12)[0][0]
+    idx_5 = np.where(np.abs(result.times - 5.0) < 1e-12)[0][0]
+    idx_8 = np.where(np.abs(result.times - 8.0) < 1e-12)[0][0]
+
+    np.testing.assert_allclose(a_vals[idx_3], 10.0)
+    np.testing.assert_allclose(a_vals[idx_5], 15.0)
+    np.testing.assert_allclose(a_vals[idx_8], 30.0)
+
+    # Test clear_events removes schedulers
+    model.clear_events()
+    assert len(model.events) == 0
+    assert len(model._event_schedulers) == 0
+
+    # Run again and ensure state remains at 0.0
+    result_clear = model.run_model(times)
+    np.testing.assert_allclose(result_clear.dataframe["A"].values, 0.0)

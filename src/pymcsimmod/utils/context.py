@@ -6,11 +6,12 @@ evaluation. The function is pure (no side effects), making it safe for
 use inside JAX-JIT compiled functions.
 """
 
+from collections.abc import Sequence
 from typing import Any
 
 
 def build_evaluation_context(
-    state_vals: list[float] | dict[str, float],
+    state_vals: Sequence[Any] | dict[str, Any],
     state_names: list[str] | tuple[str, ...],
     parameters: dict[str, float],
     forcing_values: dict[str, float] | None = None,

@@ -68,12 +68,13 @@ def validate_backend(backend: str) -> None:
     if backend is None:
         raise TypeError("Backend cannot be None")
 
+    backend_lower = backend.lower()
     valid = {bt.value for bt in BackendType}
-    if backend not in valid:
+    if backend_lower not in valid:
         raise ValueError(f"Unsupported backend '{backend}'. Supported backends: {valid}")
 
     available = detect_available_backends()
-    backend_key = backend.lower()
+    backend_key = backend_lower
     if backend_key in available and not available[backend_key]:
         install_hints = {
             "scipy": "pip install scipy",
@@ -138,7 +139,7 @@ def get_backend_capabilities(backend: str) -> dict[str, bool]:
     }
 
     try:
-        bt = BackendType(backend)
+        bt = BackendType(backend.lower())
     except ValueError:
         valid = [bt.value for bt in BackendType]
         raise ValueError(f"Unknown backend '{backend}'. Supported: {valid}")
