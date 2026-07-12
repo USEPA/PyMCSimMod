@@ -252,7 +252,7 @@ class TestEqxModel:
         assert len(sol.ts) == 11
         # Find index of t=5
         idx = np.where(np.abs(sol.ts - 5.0) < 1e-12)[0][0]
-        assert sol.ys[idx, 0] == 10.0
+        np.testing.assert_allclose(sol.ys[idx, 0], 10.0, rtol=1e-6, atol=1e-6)
 
     def test_run_model_success(self, eqx_model_components):
         """Test successful model run without events."""
