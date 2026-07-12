@@ -1,5 +1,8 @@
 """Tests for JAX-based discrete event integration."""
 
+import pytest
+
+pytest.importorskip("jax", reason="JAX not available")
 import jax
 import jax.numpy as jnp
 import numpy as np
