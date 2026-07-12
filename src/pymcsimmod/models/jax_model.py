@@ -118,6 +118,8 @@ class EqxModel(eqx.Module):
         # Compile forcing functions before running ODE solve
         self.compile_forcing_functions()
 
+        float_type = jnp.float64 if jax.config.read("jax_enable_x64") else jnp.float32
+
         if events is None:
             events = self.events
 
@@ -135,7 +137,7 @@ class EqxModel(eqx.Module):
         if not validated_events:
             t0 = float(modified_times[0])
             t_end = float(modified_times[-1])
-            y_init = jnp.asarray([self.Y0[state] for state in self.state_names], dtype=jnp.float32)
+            y_init = jnp.asarray([self.Y0[state] for state in self.state_names], dtype=float_type)
 
             @eqx.filter_jit
             def ode_rhs(t, y, args):
@@ -163,17 +165,17 @@ class EqxModel(eqx.Module):
             # Map event methods to integers for JAX compatibility
             method_map = {"add": 0, "replace": 1, "multiply": 2}
 
-            event_times = jnp.array([e.time for e in validated_events], dtype=jnp.float32)
+            event_times = jnp.array([e.time for e in validated_events], dtype=float_type)
             event_indices = jnp.array(
                 [self.state_names.index(e.state_var) for e in validated_events], dtype=jnp.int32
             )
-            event_values = jnp.array([e.value for e in validated_events], dtype=jnp.float32)
+            event_values = jnp.array([e.value for e in validated_events], dtype=float_type)
             event_methods = jnp.array(
                 [method_map[e.method] for e in validated_events], dtype=jnp.int32
             )
 
             t0 = float(modified_times[0])
-            y_init = jnp.asarray([self.Y0[state] for state in self.state_names], dtype=jnp.float32)
+            y_init = jnp.asarray([self.Y0[state] for state in self.state_names], dtype=float_type)
 
             @eqx.filter_jit
             def apply_events_jax(t, y):
@@ -214,8 +216,8 @@ class EqxModel(eqx.Module):
 
             stepsize_controller = diffrax.PIDController(rtol=rtol, atol=atol)
 
-            starts = jnp.array(modified_times[:-1], dtype=jnp.float32)
-            ends = jnp.array(modified_times[1:], dtype=jnp.float32)
+            starts = jnp.array(modified_times[:-1], dtype=float_type)
+            ends = jnp.array(modified_times[1:], dtype=float_type)
 
             @eqx.filter_jit
             def solve_segment_and_apply_event(carry_y, x):
@@ -241,7 +243,7 @@ class EqxModel(eqx.Module):
 
             # Combine y_init and ys_scan
             all_ys = jnp.concatenate([y_init[None, :], ys_scan], axis=0)
-            all_ts = jnp.array(modified_times, dtype=jnp.float32)
+            all_ts = jnp.array(modified_times, dtype=float_type)
 
             # Create a mock solution object to match diffrax.Solution structure
             class MockSolution:
@@ -266,7 +268,7 @@ class EqxModel(eqx.Module):
         @eqx.filter_jit
         def calc_outputs_single(state_vals: jnp.ndarray, t: float) -> jnp.ndarray:
             context = self.build_context(state_vals, t)
-            return jnp.array([context[name] for name in self.output_names], dtype=jnp.float32)
+            return jnp.array([context[name] for name in self.output_names], dtype=float_type)
 
         calc_outputs = jax.vmap(calc_outputs_single, in_axes=(0, 0))(sol.ys, sol.ts)
 
@@ -374,6 +376,34 @@ class JaxModel(OdeModel):
             model_tree=self.model_tree,
             state_names=tuple(self.state_names),
             output_names=tuple(self.outputs),
+        )
+
+    def create_pymc_op(
+        self,
+        times: np.ndarray,
+        sampled_params: list[str] | None = None,
+        sampled_y0: list[str] | None = None,
+        observed_vars: list[str] | None = None,
+        **solver_kwargs: Any,
+    ) -> Any:
+        """Create a PyTensor Op for use in PyMC models.
+
+        Args:
+            times: Array of time points.
+            sampled_params: Names of parameters that will be random variables.
+            sampled_y0: Names of initial conditions that will be random variables.
+            observed_vars: Names of variables to observe/return.
+            **solver_kwargs: kwargs passed to create_pymc_op factory.
+        """
+        from ..pymc.bridge import create_pymc_op
+
+        return create_pymc_op(
+            self,
+            times,
+            sampled_params=sampled_params,
+            sampled_y0=sampled_y0,
+            observed_vars=observed_vars,
+            **solver_kwargs,
         )
 
 

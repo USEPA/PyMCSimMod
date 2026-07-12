@@ -1,6 +1,7 @@
 """Perform ODE simulations using MCSim models."""
 
 from pathlib import Path
+from typing import Any
 
 from pydantic import validate_call
 
@@ -66,3 +67,20 @@ __all__ = [
     "create_event_scheduler",
     "create_model",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name in ("BayesianODEModel", "MCSimModOp", "create_pymc_op", "BayesianComputedModel"):
+        try:
+            from .pymc import BayesianComputedModel, BayesianODEModel, MCSimModOp, create_pymc_op
+
+            globals()["BayesianODEModel"] = BayesianODEModel
+            globals()["MCSimModOp"] = MCSimModOp
+            globals()["create_pymc_op"] = create_pymc_op
+            globals()["BayesianComputedModel"] = BayesianComputedModel
+            return globals()[name]
+        except ImportError as e:
+            raise ImportError(
+                "PyMC integration requires optional dependencies. Install with: pip install .[pymc]"
+            ) from e
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
