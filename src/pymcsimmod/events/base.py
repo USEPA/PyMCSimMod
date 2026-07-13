@@ -111,7 +111,7 @@ class NDoses(BaseEventScheduler):
             if t_start <= t0 <= t_end:
                 val = (
                     self.value[i]
-                    if isinstance(self.value, (list, tuple, np.ndarray))  # noqa: UP038
+                    if isinstance(self.value, (list, tuple, np.ndarray))
                     else self.value
                 )
                 events.append(
