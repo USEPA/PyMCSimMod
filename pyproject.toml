@@ -25,6 +25,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+pymc = [
+  "pymc",
+  "nutpie",
+  "arviz",
+  "ipywidgets",
+]
 dev = [
   "flit~=3.12.0",
   "coverage~=7.15.1",

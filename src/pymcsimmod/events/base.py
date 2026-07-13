@@ -9,6 +9,22 @@ import pandas as pd
 from pydantic import BaseModel, ConfigDict
 
 
+def _validate_event_val(val: Any) -> Any:
+    """Validate and convert the event value to float if it is a standard numeric type,
+    or allow it if it is a string parameter name reference or a symbolic variable.
+    """
+    if isinstance(val, str):
+        return val
+    if isinstance(val, (int, float, np.integer, np.floating)):
+        return float(val)
+    if hasattr(val, "shape") or hasattr(val, "dtype") or hasattr(val, "type") or hasattr(val, "owner"):
+        return val
+    raise TypeError(
+        f"Invalid event value type: {type(val)}. Expected a numeric value, "
+        f"string parameter reference, or symbolic variable, but got {val}."
+    )
+
+
 class DiscreteEvent(BaseModel):
     """
     Represents a discrete event similar to deSolve's event handling.
@@ -118,7 +134,7 @@ class NDoses(BaseEventScheduler):
                     DiscreteEvent(
                         time=float(t0),
                         state_var=state_var,
-                        value=float(val),
+                        value=_validate_event_val(val),
                         method=self.method,
                     )
                 )
@@ -162,7 +178,7 @@ class PerDose(BaseEventScheduler):
                     DiscreteEvent(
                         time=float(t),
                         state_var=state_var,
-                        value=float(self.value),
+                        value=_validate_event_val(self.value),
                         method=self.method,
                     )
                 )
@@ -198,7 +214,7 @@ class OnOff(BaseEventScheduler):
                 DiscreteEvent(
                     time=float(self.t0),
                     state_var=state_var,
-                    value=float(self.value),
+                    value=_validate_event_val(self.value),
                     method=self.method,
                 )
             )
@@ -208,13 +224,19 @@ class OnOff(BaseEventScheduler):
                 off_method = self.method
             else:
                 if self.method == "add":
-                    off_val = -self.value
+                    if isinstance(self.value, str):
+                        off_val = f"-{self.value}"
+                    else:
+                        off_val = -self.value
                     off_method = "add"
                 elif self.method == "replace":
                     off_val = 0.0
                     off_method = "replace"
                 elif self.method == "multiply":
-                    off_val = 1.0 / self.value if self.value != 0.0 else 0.0
+                    if isinstance(self.value, str):
+                        off_val = f"1.0/{self.value}"
+                    else:
+                        off_val = 1.0 / self.value if self.value != 0.0 else 0.0
                     off_method = "multiply"
                 else:
                     off_val = 0.0
@@ -223,7 +245,7 @@ class OnOff(BaseEventScheduler):
                 DiscreteEvent(
                     time=float(self.t1),
                     state_var=state_var,
-                    value=float(off_val),
+                    value=_validate_event_val(off_val),
                     method=off_method,
                 )
             )
@@ -266,7 +288,7 @@ class DataFrameEventScheduler(BaseEventScheduler):
 
         for _, row in df_filtered.iterrows():
             t = float(row[self.time_col])
-            val = float(row[self.value_col])
+            val = row[self.value_col]
             meth = (
                 str(row[self.method_col]) if self.method_col in df_filtered.columns else self.method
             )
@@ -275,7 +297,7 @@ class DataFrameEventScheduler(BaseEventScheduler):
                 DiscreteEvent(
                     time=t,
                     state_var=s_var,
-                    value=val,
+                    value=_validate_event_val(val),
                     method=meth,
                 )
             )
