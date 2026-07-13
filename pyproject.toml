@@ -27,10 +27,10 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "flit~=3.12.0",
-  "coverage~=7.7.1",
-  "pytest~=8.3.4",
-  "ruff~=0.11.2",
-  "poethepoet~=0.33.1",
+  "coverage~=7.15.1",
+  "pytest~=9.1.1",
+  "ruff~=0.15.21",
+  "poethepoet~=0.48.0",
   "jupyterlab",
 ]
 
