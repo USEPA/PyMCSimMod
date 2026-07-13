@@ -77,3 +77,44 @@ def test_build_jax_solve_function(exponential_model_str):
     res = solve_fn(0.5, 2.0)
     expected = 2.0 * np.exp(-times * 0.5)
     np.testing.assert_allclose(res, expected, rtol=1e-5)
+
+
+def test_build_jax_solve_function_with_events():
+    """Test building a JAX solve function that includes events."""
+    from pymcsimmod.events.utils import check_events
+    complex_pk_model_str = """
+    States = { A0, A1, AUC };
+    Inputs = { dose };
+    Outputs = { C, Atot };
+    ka = 1.0; ke = 0.1; V = 10.0;
+    Initialize { A0 = 0.0; A1 = 0.0; AUC = 0.0; }
+    Dynamics { dt(A0) = dose - ka * A0; dt(A1) = ka * A0 - ke * A1; dt(AUC) = A1 / V; }
+    CalcOutputs { C = A1 / V; Atot = A0 + A1; }
+    End.
+    """
+    model = JaxModel(complex_pk_model_str)
+    model.parameters['OralDose'] = 100.0
+    model.assign_event('A0', 'NDoses', t0_list=[1.0, 3.0], value='OralDose')
+    times = np.linspace(0, 5, 6)
+
+    eqx_model = model._to_eqx()
+    eqx_model.compile_forcing_functions()
+
+    validated_events, modified_times = check_events(
+        eqx_model.events, np.asarray(times), list(eqx_model.state_names)
+    )
+
+    solve_fn = build_jax_solve_function(
+        eqx_model=eqx_model,
+        times=modified_times,
+        sampled_param_names=["OralDose", "ka", "ke"],
+        sampled_y0_names=[],
+        observed_var_names=["A0", "A1"],
+        solver_config={},
+        validated_events=validated_events,
+    )
+
+    # Evaluate: OralDose=120.0, ka=1.0, ke=0.1
+    res = solve_fn(120.0, 1.0, 0.1)
+    assert res.shape == (6, 2)
+

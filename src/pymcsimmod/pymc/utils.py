@@ -49,8 +49,9 @@ def build_jax_solve_function(
     sampled_y0_names: list[str],
     observed_var_names: list[str],
     solver_config: dict[str, Any],
+    validated_events: list[Any] | None = None,
 ) -> Callable[..., jnp.ndarray]:
-    """Build a pure JAX function that solves the ODE model.
+    """Build a pure JAX function that solves the ODE model, with event handling awareness.
 
     Args:
         eqx_model: The EqxModel instance.
@@ -59,6 +60,7 @@ def build_jax_solve_function(
         sampled_y0_names: List of state names whose initial conditions are PyMC random variables.
         observed_var_names: List of observed state/calculated variable names to return.
         solver_config: Dict containing solver settings (solver, rtol, atol, dt0, max_steps).
+        validated_events: Pre-validated discrete events to apply.
 
     Returns:
         A JAX-compatible function solve_fn(*args) -> observed_outputs.
@@ -69,20 +71,25 @@ def build_jax_solve_function(
     t0 = float(times[0])
     t1 = float(times[-1])
 
+    if validated_events is None:
+        validated_events = []
+
     def solve_fn(*args: Any) -> jnp.ndarray:
+        float_type = jnp.float64 if jax.config.read("jax_enable_x64") else jnp.float32
+
         n_params = len(sampled_param_names)
         param_vals = args[:n_params]
         y0_vals = args[n_params:]
 
         # Build parameters dictionary
-        params = {k: jnp.asarray(v) for k, v in fixed_params.items()}
+        params = {k: jnp.asarray(v, dtype=float_type) for k, v in fixed_params.items()}
         for name, val in zip(sampled_param_names, param_vals, strict=False):
-            params[name] = val
+            params[name] = jnp.asarray(val, dtype=float_type)
 
         # Build Y0 dictionary
-        y0 = {k: jnp.asarray(v) for k, v in fixed_y0.items()}
+        y0 = {k: jnp.asarray(v, dtype=float_type) for k, v in fixed_y0.items()}
         for name, val in zip(sampled_y0_names, y0_vals, strict=False):
-            y0[name] = val
+            y0[name] = jnp.asarray(val, dtype=float_type)
 
         # Build initial state array
         y_init = jnp.stack([y0[state] for state in eqx_model.state_names])
@@ -146,19 +153,139 @@ def build_jax_solve_function(
         max_steps = solver_config.get("max_steps", 100000)
 
         stepsize_controller = diffrax.PIDController(rtol=rtol, atol=atol)
-        saveat = diffrax.SaveAt(ts=jnp.array(times))
 
-        sol = diffrax.diffeqsolve(
-            ode_term,
-            solver,
-            t0=t0,
-            t1=t1,
-            dt0=dt0,
-            y0=y_init,
-            saveat=saveat,
-            max_steps=max_steps,
-            stepsize_controller=stepsize_controller,
-        )
+        if not validated_events:
+            saveat = diffrax.SaveAt(ts=jnp.array(times, dtype=float_type))
+            sol = diffrax.diffeqsolve(
+                ode_term,
+                solver,
+                t0=t0,
+                t1=t1,
+                dt0=dt0,
+                y0=y_init,
+                saveat=saveat,
+                max_steps=max_steps,
+                stepsize_controller=stepsize_controller,
+            )
+            all_ys = sol.ys
+            all_ts = sol.ts
+        else:
+            # Map event methods to integers for JAX compatibility
+            method_map = {"add": 0, "replace": 1, "multiply": 2}
+
+            event_times = jnp.array([e.time for e in validated_events], dtype=float_type)
+            event_indices = jnp.array(
+                [eqx_model.state_names.index(e.state_var) for e in validated_events], dtype=jnp.int32
+            )
+            event_methods = jnp.array(
+                [method_map[e.method] for e in validated_events], dtype=jnp.int32
+            )
+
+            # Resolve event values against PyMC parameter tracers
+            resolved_event_vals = []
+            for e in validated_events:
+                val = e.value
+                if isinstance(val, str):
+                    neg = False
+                    if val.startswith("-"):
+                        val = val[1:]
+                        neg = True
+                    inv = False
+                    if val.startswith("1.0/"):
+                        val = val[4:]
+                        inv = True
+
+                    if val in params:
+                        resolved_val = params[val]
+                    else:
+                        resolved_val = jnp.array(float(val), dtype=float_type)
+
+                    if neg:
+                        resolved_val = -resolved_val
+                    if inv:
+                        resolved_val = 1.0 / resolved_val
+                else:
+                    resolved_val = jnp.array(val, dtype=float_type)
+                resolved_event_vals.append(resolved_val)
+
+            event_values = jnp.stack(resolved_event_vals)
+
+            def apply_events_jax(t, y, ev_vals):
+                num_events = len(validated_events)
+                for i in range(num_events):
+                    idx = event_indices[i]
+                    val = ev_vals[i]
+                    method = event_methods[i]
+                    ev_t = event_times[i]
+
+                    # Use a tolerance appropriate for float32 time grids
+                    is_event_t = jnp.isclose(ev_t, t, rtol=0.0, atol=1e-6)
+
+                    val_add = y[idx] + val
+                    val_replace = val
+                    val_multiply = y[idx] * val
+
+                    new_val = jnp.where(
+                        method == 0,
+                        val_add,
+                        jnp.where(method == 1, val_replace, val_multiply),
+                    )
+
+                    target_val = jnp.where(is_event_t, new_val, y[idx])
+                    y = y.at[idx].set(target_val)
+                return y
+
+            # Apply events at the start time t0 if any
+            y_init = apply_events_jax(t0, y_init, event_values)
+
+            # Calculate unique segment boundaries based on event times
+            unique_event_times = sorted(list(set(e.time for e in validated_events)))
+            segment_boundaries = [t0] + [t for t in unique_event_times if t0 < t < t1] + [t1]
+            segment_boundaries = sorted(list(set(segment_boundaries)))
+
+            segment_starts = segment_boundaries[:-1]
+            segment_ends = segment_boundaries[1:]
+
+            segment_ys = []
+            carry_y = y_init
+            for i in range(len(segment_starts)):
+                t_start = float(segment_starts[i])
+                t_end = float(segment_ends[i])
+
+                sol_seg = diffrax.diffeqsolve(
+                    ode_term,
+                    solver,
+                    t0=t_start,
+                    t1=t_end,
+                    dt0=dt0,
+                    y0=carry_y,
+                    saveat=diffrax.SaveAt(dense=True),
+                    max_steps=max_steps,
+                    stepsize_controller=stepsize_controller,
+                )
+
+                # Evaluate dense interpolation for all times in this segment
+                clipped_ts = jnp.clip(times, t_start, t_end)
+                ys_seg = jax.vmap(sol_seg.interpolation.evaluate)(clipped_ts)
+
+                # Apply event at t_end
+                y_end = sol_seg.interpolation.evaluate(t_end)
+                carry_y = apply_events_jax(t_end, y_end, event_values)
+
+                # Apply mask: B_i <= t < B_i+1 (or B_i <= t <= B_i+1 for last segment)
+                if i < len(segment_starts) - 1:
+                    mask = (times >= t_start) & (times < t_end)
+                    ys_to_use = ys_seg
+                else:
+                    mask = (times >= t_start) & (times <= t_end)
+                    is_t1 = (times == t_end)
+                    ys_to_use = jnp.where(jnp.expand_dims(is_t1, axis=-1), carry_y, ys_seg)
+
+                mask = jnp.expand_dims(mask, axis=-1)
+                segment_ys.append(jnp.where(mask, ys_to_use, 0.0))
+
+            all_ys = sum(segment_ys)
+            all_ts = jnp.array(times, dtype=float_type)
 
         # Map state trajectories and CalcOutputs to observed variables
         def get_observed(y_val: jnp.ndarray, t_val: float) -> jnp.ndarray:
@@ -181,7 +308,7 @@ def build_jax_solve_function(
 
             return jnp.stack([context[name] for name in observed_var_names])
 
-        observed_trajectory = jax.vmap(get_observed)(sol.ys, sol.ts)
+        observed_trajectory = jax.vmap(get_observed)(all_ys, all_ts)
 
         if len(observed_var_names) == 1:
             observed_trajectory = observed_trajectory.squeeze(axis=-1)

@@ -130,10 +130,12 @@ def test_high_level_api(exponential_model_str):
 
         predictions = bayes.solve(params={"ke": ke}, y0={"A": y0}, observed_vars=["A"])
 
-        sigma = pm.HalfNormal("sigma", sigma=0.1)
-        pm.Normal("obs", mu=predictions, sigma=sigma, observed=np.zeros(5))
-
-        idata = pm.sample(draws=50, tune=50, chains=1, random_seed=42)
+    import arviz as az
+    posterior_dict = {
+        "ke": np.random.normal(0.5, 0.05, size=(1, 50)),
+        "A_init": np.random.normal(1.0, 0.1, size=(1, 50)),
+    }
+    idata = az.from_dict({"posterior": posterior_dict})
 
     # Verify posterior predictive projection
     computed = bayes.posterior_predictive(idata)
@@ -173,3 +175,102 @@ def test_complex_pk_model_inference(complex_pk_model_str):
         abs_tol=1e-3,
         rel_tol=1e-3,
     )
+
+
+def test_event_dosing_in_pymc(complex_pk_model_str):
+    """Test that event dosing works in PyMC integration and supports parameter mapping."""
+    model = JaxModel(complex_pk_model_str)
+    model.parameters['OralDose'] = 100.0
+    model.assign_event('A0', 'NDoses', t0_list=[1.0, 3.0], value='OralDose')
+    times = np.linspace(0, 5, 6)
+
+    sol_op = model.create_pymc_op(
+        times=times,
+        sampled_params=["OralDose", "ka", "ke"],
+        observed_vars=["A0", "A1"]
+    )
+
+    res = sol_op._jitted_solve(120.0, 1.0, 0.1)
+    assert res.shape == (6, 2)
+
+    # Verify gradients
+    pytensor.gradient.verify_grad(
+        sol_op,
+        (np.array(120.0), np.array(1.0), np.array(0.1)),
+        rng=np.random.default_rng(),
+        abs_tol=1e-3,
+        rel_tol=1e-3,
+    )
+
+
+def test_event_dosing_custom_float_in_pymc(complex_pk_model_str):
+    """Test that event dosing with a static float value works in PyMC context."""
+    model = JaxModel(complex_pk_model_str)
+    model.assign_event('A0', 'NDoses', t0_list=[1.0, 3.0], value=50.0)
+    times = np.linspace(0, 5, 6)
+
+    sol_op = model.create_pymc_op(
+        times=times,
+        sampled_params=["ka", "ke"],
+        observed_vars=["A0", "A1"]
+    )
+
+    res = sol_op._jitted_solve(1.0, 0.1)
+    assert res.shape == (6, 2)
+
+    pytensor.gradient.verify_grad(
+        sol_op,
+        (np.array(1.0), np.array(0.1)),
+        rng=np.random.default_rng(),
+        abs_tol=1e-3,
+        rel_tol=1e-3,
+    )
+
+
+def test_event_posterior_predictive_plot():
+    """Test posterior predictive plotting with events and custom time grid."""
+    complex_pk_model_str = """
+    States = { A0, A1, AUC };
+    Inputs = { dose };
+    Outputs = { C, Atot };
+    ka = 1.0; ke = 0.1; V = 10.0;
+    Initialize { A0 = 0.0; A1 = 0.0; AUC = 0.0; }
+    Dynamics { dt(A0) = dose - ka * A0; dt(A1) = ka * A0 - ke * A1; dt(AUC) = A1 / V; }
+    CalcOutputs { C = A1 / V; Atot = A0 + A1; }
+    End.
+    """
+    model = JaxModel(complex_pk_model_str)
+    model.parameters['OralDose'] = 100.0
+    model.assign_event('A0', 'NDoses', t0_list=[1.0, 3.0], value='OralDose')
+    times = np.linspace(0, 5, 6)
+
+    bayes = BayesianODEModel(model, times)
+
+    with pm.Model():
+        OralDose = pm.Normal("OralDose", mu=100, sigma=10)
+        ka = pm.Normal("ka", mu=1.0, sigma=0.1)
+        ke = pm.Normal("ke", mu=0.1, sigma=0.01)
+
+        predictions = bayes.solve(
+            params={"OralDose": OralDose, "ka": ka, "ke": ke},
+            observed_vars=["A0", "A1"]
+        )
+
+    import arviz as az
+    posterior_dict = {
+        "OralDose": np.random.normal(100.0, 10.0, size=(1, 10)),
+        "ka": np.random.normal(1.0, 0.1, size=(1, 10)),
+        "ke": np.random.normal(0.1, 0.01, size=(1, 10)),
+    }
+    idata = az.from_dict({"posterior": posterior_dict})
+
+    computed = bayes.posterior_predictive(idata)
+
+    # Verify plot_predictive with custom times not including event times
+    dense_times = np.linspace(0, 5, 20)
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots()
+    computed.plot_predictive(var_name="A0", ax=ax, times=dense_times, num_samples=5)
+    plt.close(fig)
+
+

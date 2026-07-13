@@ -165,16 +165,43 @@ class EqxModel(eqx.Module):
             # Map event methods to integers for JAX compatibility
             method_map = {"add": 0, "replace": 1, "multiply": 2}
 
+            resolved_values = []
+            for e in validated_events:
+                val = e.value
+                if isinstance(val, str):
+                    neg = False
+                    if val.startswith("-"):
+                        val = val[1:]
+                        neg = True
+                    inv = False
+                    if val.startswith("1.0/"):
+                        val = val[4:]
+                        inv = True
+                    
+                    if val in self.parameters:
+                        resolved_val = self.parameters[val]
+                    else:
+                        resolved_val = float(val)
+                    
+                    if neg:
+                        resolved_val = -resolved_val
+                    if inv:
+                        resolved_val = 1.0 / resolved_val
+                else:
+                    resolved_val = val
+                resolved_values.append(resolved_val)
+
             event_times = jnp.array([e.time for e in validated_events], dtype=float_type)
             event_indices = jnp.array(
                 [self.state_names.index(e.state_var) for e in validated_events], dtype=jnp.int32
             )
-            event_values = jnp.array([e.value for e in validated_events], dtype=float_type)
+            event_values = jnp.array(resolved_values, dtype=float_type)
             event_methods = jnp.array(
                 [method_map[e.method] for e in validated_events], dtype=jnp.int32
             )
 
             t0 = float(modified_times[0])
+            t_end = float(modified_times[-1])
             y_init = jnp.asarray([self.Y0[state] for state in self.state_names], dtype=float_type)
 
             @eqx.filter_jit
@@ -216,12 +243,19 @@ class EqxModel(eqx.Module):
 
             stepsize_controller = diffrax.PIDController(rtol=rtol, atol=atol)
 
-            starts = jnp.array(modified_times[:-1], dtype=float_type)
-            ends = jnp.array(modified_times[1:], dtype=float_type)
+            # Calculate unique segment boundaries based on event times
+            unique_event_times = sorted(list(set(e.time for e in validated_events)))
+            segment_boundaries = [t0] + [t for t in unique_event_times if t0 < t < t_end] + [t_end]
+            segment_boundaries = sorted(list(set(segment_boundaries)))
 
-            @eqx.filter_jit
-            def solve_segment_and_apply_event(carry_y, x):
-                t_start, t_end = x
+            segment_starts = segment_boundaries[:-1]
+            segment_ends = segment_boundaries[1:]
+
+            segment_ys = []
+            carry_y = y_init
+            for i in range(len(segment_starts)):
+                t_start = float(segment_starts[i])
+                t_end = float(segment_ends[i])
 
                 sol_seg = diffrax.diffeqsolve(
                     ode_term,
@@ -230,19 +264,33 @@ class EqxModel(eqx.Module):
                     t1=t_end,
                     dt0=dt0,
                     y0=carry_y,
-                    saveat=diffrax.SaveAt(t1=True),
+                    saveat=diffrax.SaveAt(dense=True),
                     max_steps=max_steps,
                     stepsize_controller=stepsize_controller,
                     args=(),
                 )
-                y_end = sol_seg.ys[0]
-                y_end_post = apply_events_jax(t_end, y_end)
-                return y_end_post, y_end_post
 
-            _, ys_scan = jax.lax.scan(solve_segment_and_apply_event, y_init, (starts, ends))
+                # Evaluate dense interpolation for all times in this segment
+                clipped_ts = jnp.clip(modified_times, t_start, t_end)
+                ys_seg = jax.vmap(sol_seg.interpolation.evaluate)(clipped_ts)
 
-            # Combine y_init and ys_scan
-            all_ys = jnp.concatenate([y_init[None, :], ys_scan], axis=0)
+                # Apply event at t_end
+                y_end = sol_seg.interpolation.evaluate(t_end)
+                carry_y = apply_events_jax(t_end, y_end)
+
+                # Apply mask: B_i <= t < B_i+1 (or B_i <= t <= B_i+1 for last segment)
+                if i < len(segment_starts) - 1:
+                    mask = (modified_times >= t_start) & (modified_times < t_end)
+                    ys_to_use = ys_seg
+                else:
+                    mask = (modified_times >= t_start) & (modified_times <= t_end)
+                    is_t1 = (modified_times == t_end)
+                    ys_to_use = jnp.where(jnp.expand_dims(is_t1, axis=-1), carry_y, ys_seg)
+
+                mask = jnp.expand_dims(mask, axis=-1)
+                segment_ys.append(jnp.where(mask, ys_to_use, 0.0))
+
+            all_ys = sum(segment_ys)
             all_ts = jnp.array(modified_times, dtype=float_type)
 
             # Create a mock solution object to match diffrax.Solution structure

@@ -151,6 +151,16 @@ def create_pymc_op(
     eqx_model = model._to_eqx()
     eqx_model.compile_forcing_functions()
 
+    # Pre-validate events against times
+    from ..events.utils import check_events
+    if hasattr(eqx_model, "events") and eqx_model.events:
+        validated_events, modified_times = check_events(
+            eqx_model.events, np.asarray(times), list(eqx_model.state_names)
+        )
+    else:
+        validated_events = []
+        modified_times = np.asarray(times)
+
     solver_config = {
         "solver": solver,
         "rtol": rtol,
@@ -161,17 +171,18 @@ def create_pymc_op(
 
     solve_fn = build_jax_solve_function(
         eqx_model=eqx_model,
-        times=times,
+        times=modified_times,
         sampled_param_names=sampled_params,
         sampled_y0_names=sampled_y0,
         observed_var_names=observed_vars,
         solver_config=solver_config,
+        validated_events=validated_events,
     )
 
     n_args = len(sampled_params) + len(sampled_y0)
     vjp_fn = build_jax_vjp_function(solve_fn, n_args)
 
-    n_times = len(times)
+    n_times = len(modified_times)
     if len(observed_vars) == 1:
         output_shape = (n_times,)
     else:
@@ -227,6 +238,13 @@ class BayesianODEModel:
         if observed_vars is None:
             observed_vars = self.model.state_names
         self._observed_vars = observed_vars
+
+        # Run check_events to update self.times if events exist
+        if hasattr(self.model, "events") and self.model.events:
+            from ..events.utils import check_events
+            _, self.times = check_events(
+                self.model.events, np.asarray(self.times), list(self.model.state_names)
+            )
 
         self._op = create_pymc_op(
             model=self.model,

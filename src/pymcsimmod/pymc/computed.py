@@ -52,6 +52,12 @@ class BayesianComputedModel:
         """
         if times is None:
             times = self.times
+        else:
+            if hasattr(self.model, "events") and self.model.events:
+                from ..events.utils import check_events
+                _, times = check_events(
+                    self.model.events, np.asarray(times), list(self.model.state_names)
+                )
 
         posterior = self.idata.posterior
         if hasattr(posterior, "to_dataset"):
@@ -104,6 +110,11 @@ class BayesianComputedModel:
             _, ax = plt.subplots()
 
         plot_times = times if times is not None else self.times
+        if hasattr(self.model, "events") and self.model.events:
+            from ..events.utils import check_events
+            _, plot_times = check_events(
+                self.model.events, np.asarray(plot_times), list(self.model.state_names)
+            )
         predictions = self.sample_predictions(num_samples=num_samples, times=plot_times)
 
         if len(self.observed_vars) == 1:
