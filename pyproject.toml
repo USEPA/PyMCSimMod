@@ -50,7 +50,7 @@ target-version = "py313"
 
 [tool.ruff.lint]
 select = ["F", "E", "W", "I", "UP", "S", "B", "T20", "RUF"]
-ignore = ["E501", "B904", "B007", "S308", "S113", "S314"]
+ignore = ["E501", "B904", "B007", "S308", "S113", "S314", "RUF059"]
 unfixable = ["F401", "F841"]
 isort.known-first-party = ["pymcsimmod"]
 
